@@ -41,9 +41,12 @@
 package org.dcm4che3.conf.json;
 
 import org.dcm4che3.net.Connection;
+import org.dcm4che3.util.DateUtils;
 
 import javax.json.stream.JsonGenerator;
+import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 
 /**
@@ -109,6 +112,11 @@ public class JsonWriter {
             gen.write(name, value.getID());
     }
 
+    public void writeNotNull(String name, Date value) {
+        if (value != null)
+            gen.write(name, DateUtils.formatDT(null, value));
+    }
+
     public <T> void writeNotEmpty(String name, T[] values, T... defVals) {
         if (values.length != 0 && !equals(values, defVals)) {
             gen.writeStartArray(name);
@@ -117,6 +125,19 @@ public class JsonWriter {
             gen.writeEnd();
         }
     }
+
+    public <T> void writeNotEmpty(String name, Map<String, T> map) {
+        writeNotEmpty(name, toStrings(map));
+    }
+
+    private static <T> String[] toStrings(Map<String, T> map) {
+        String[] ss = new String[map.size()];
+        int i = 0;
+        for (Map.Entry<String, T> entry : map.entrySet())
+            ss[i++] = entry.getKey() + '=' + entry.getValue();
+        return ss;
+    }
+
 
     public static <T> boolean equals(T[] a, T[] a2) {
         int length = a.length;

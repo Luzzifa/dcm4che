@@ -41,16 +41,14 @@
 package org.dcm4che3.conf.json;
 
 import org.dcm4che3.conf.api.ConfigurationException;
+import org.dcm4che3.io.BasicBulkDataDescriptor;
 import org.dcm4che3.net.*;
 import org.dcm4che3.net.hl7.HL7ApplicationInfo;
 
 import javax.json.stream.JsonGenerator;
 import javax.json.stream.JsonParser;
 import javax.json.stream.JsonParsingException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -63,12 +61,14 @@ public class JsonConfiguration {
 
     public void addJsonConfigurationExtension(JsonConfigurationExtension ext) {
         extensions.add(ext);
+        ext.setJsonConfiguration(this);
     }
 
     public boolean removeJsonConfigurationExtension(JsonConfigurationExtension ext) {
         if (!extensions.remove(ext))
             return false;
 
+        ext.setJsonConfiguration(null);
         return true;
     }
 
@@ -114,15 +114,21 @@ public class JsonConfiguration {
     }
 
     public void writeTo(WebApplicationInfo webappInfo, JsonGenerator gen) {
+        writeTo(webappInfo, gen, webappInfo.getKeycloakClientID());
+    }
+
+    public void writeTo(WebApplicationInfo webappInfo, JsonGenerator gen, String keycloakClientID) {
         JsonWriter writer = new JsonWriter(gen);
         gen.writeStartObject();
         writer.writeNotNullOrDef("dicomDeviceName", webappInfo.getDeviceName(), null);
         writer.writeNotNullOrDef("dcmWebAppName", webappInfo.getApplicationName(), null);
         writer.writeNotNullOrDef("dicomDescription", webappInfo.getDescription(), null);
         writer.writeNotNullOrDef("dcmWebServicePath", webappInfo.getServicePath(), null);
+        writer.writeNotNullOrDef("dcmKeycloakClientID", keycloakClientID, null);
         writer.writeNotEmpty("dcmWebServiceClass", webappInfo.getServiceClasses());
         writer.writeNotNullOrDef("dicomAETitle", webappInfo.getAETitle(), null);
         writer.writeNotEmpty("dicomApplicationCluster", webappInfo.getApplicationClusters());
+        writer.writeNotEmpty("dcmProperty", webappInfo.getProperties());
         writer.writeNotNull("dicomInstalled", webappInfo.getInstalled());
         writeNotExtendedConns(webappInfo.getConnections(), writer);
         gen.writeEnd();
@@ -184,7 +190,9 @@ public class JsonConfiguration {
 
         if (extended) {
             gen.writeStartObject("dcmDevice");
+            writer.writeNotDef("dcmRoleSelectionNegotiationLenient", device.isRoleSelectionNegotiationLenient(), false);
             writer.writeNotDef("dcmLimitOpenAssociations", device.getLimitOpenAssociations(), 0);
+            writer.writeNotEmpty("dcmLimitAssociationsInitiatedBy", device.getLimitAssociationsInitiatedBy());
             writer.writeNotNullOrDef("dcmTrustStoreURL", device.getTrustStoreURL(), null);
             writer.writeNotNullOrDef("dcmTrustStoreType", device.getTrustStoreType(), null);
             writer.writeNotNullOrDef("dcmTrustStorePin", device.getTrustStorePin(), null);
@@ -197,6 +205,7 @@ public class JsonConfiguration {
             writer.writeNotNullOrDef("dcmKeyStoreKeyPinProperty", device.getKeyStoreKeyPinProperty(), null);
             writer.writeNotNullOrDef("dcmTimeZoneOfDevice", device.getTimeZoneOfDevice(), null);
             writeWebApplicationsTo(device, writer);
+            writeKeycloackClientsTo(device, writer);
             for (JsonConfigurationExtension ext : extensions)
                 ext.storeTo(device, writer);
             gen.writeEnd();
@@ -297,8 +306,14 @@ public class JsonConfiguration {
                     reader.expect(JsonParser.Event.START_OBJECT);
                     while (reader.next() == JsonParser.Event.KEY_NAME) {
                         switch (reader.getString()) {
+                            case "dcmRoleSelectionNegotiationLenient":
+                                device.setRoleSelectionNegotiationLenient(reader.booleanValue());
+                                break;
                             case "dcmLimitOpenAssociations":
                                 device.setLimitOpenAssociations(reader.intValue());
+                                break;
+                            case "dcmLimitAssociationsInitiatedBy":
+                                device.setLimitAssociationsInitiatedBy(reader.stringArray());
                                 break;
                             case "dcmTrustStoreURL":
                                 device.setTrustStoreURL(reader.stringValue());
@@ -335,6 +350,9 @@ public class JsonConfiguration {
                                 break;
                             case "dcmWebApp":
                                 loadWebApplications(device, reader);
+                                break;
+                            case "dcmKeycloakClient":
+                                loadKeycloakClients(device, reader);
                                 break;
                             default:
                                 if (!loadDeviceExtension(device, reader, config))
@@ -400,6 +418,10 @@ public class JsonConfiguration {
                     conn.getAcceptTimeout(), Connection.NO_TIMEOUT);
             writer.writeNotDef("dcmARRPTimeout",
                     conn.getReleaseTimeout(), Connection.NO_TIMEOUT);
+            writer.writeNotDef("dcmSendTimeout",
+                    conn.getSendTimeout(), Connection.NO_TIMEOUT);
+            writer.writeNotDef("dcmStoreTimeout",
+                    conn.getStoreTimeout(), Connection.NO_TIMEOUT);
             writer.writeNotDef("dcmResponseTimeout",
                     conn.getResponseTimeout(), Connection.NO_TIMEOUT);
             writer.writeNotDef("dcmRetrieveTimeout",
@@ -489,6 +511,12 @@ public class JsonConfiguration {
                                 break;
                             case "dcmARRPTimeout":
                                 conn.setReleaseTimeout(reader.intValue());
+                                break;
+                            case "dcmSendTimeout":
+                                conn.setSendTimeout(reader.intValue());
+                                break;
+                            case "dcmStoreTimeout":
+                                conn.setStoreTimeout(reader.intValue());
                                 break;
                             case "dcmResponseTimeout":
                                 conn.setResponseTimeout(reader.intValue());
@@ -581,6 +609,7 @@ public class JsonConfiguration {
         writeTransferCapabilitiesTo(ae, writer, extended);
         if (extended) {
             writer.writeStartObject("dcmNetworkAE");
+            writer.writeNotNull("dcmRoleSelectionNegotiationLenient", ae.getRoleSelectionNegotiationLenient());
             writer.writeNotEmpty("dcmPreferredTransferSyntax", ae.getPreferredTransferSyntaxes());
             writer.writeNotEmpty("dcmAcceptedCallingAETitle", ae.getAcceptedCallingAETitles());
             writer.writeNotEmpty("dcmOtherAETitle", ae.getOtherAETitles());
@@ -646,6 +675,9 @@ public class JsonConfiguration {
                     reader.expect(JsonParser.Event.START_OBJECT);
                     while (reader.next() == JsonParser.Event.KEY_NAME) {
                         switch (reader.getString()) {
+                            case "dcmRoleSelectionNegotiationLenient":
+                                ae.setRoleSelectionNegotiationLenient(reader.booleanValue());
+                                break;
                             case "dcmPreferredTransferSyntax":
                                 ae.setPreferredTransferSyntaxes(reader.stringArray());
                                 break;
@@ -843,9 +875,11 @@ public class JsonConfiguration {
         writer.writeNotNullOrDef("dcmWebAppName", webapp.getApplicationName(), null);
         writer.writeNotNullOrDef("dicomDescription", webapp.getDescription(), null);
         writer.writeNotNullOrDef("dcmWebServicePath", webapp.getServicePath(), null);
+        writer.writeNotNullOrDef("dcmKeycloakClientID", webapp.getKeycloakClientID(), null);
         writer.writeNotEmpty("dcmWebServiceClass", webapp.getServiceClasses());
         writer.writeNotNullOrDef("dicomAETitle", webapp.getAETitle(), null);
         writer.writeNotEmpty("dicomApplicationCluster", webapp.getApplicationClusters());
+        writer.writeNotEmpty("dcmProperty", webapp.getProperties());
         writer.writeConnRefs(conns, webapp.getConnections());
         writer.writeNotNull("dicomInstalled", webapp.getInstalled());
         writer.writeEnd();
@@ -875,6 +909,9 @@ public class JsonConfiguration {
                 case "dcmWebServicePath":
                     webapp.setServicePath(reader.stringValue());
                     break;
+                case "dcmKeycloakClientID":
+                    webapp.setKeycloakClientID(reader.stringValue());
+                    break;
                 case "dcmWebServiceClass":
                     webapp.setServiceClasses(reader.enumArray(WebApplication.ServiceClass.class));
                     break;
@@ -883,6 +920,9 @@ public class JsonConfiguration {
                     break;
                 case "dicomApplicationCluster":
                     webapp.setApplicationClusters(reader.stringArray());
+                    break;
+                case "dcmProperty":
+                    webapp.setProperties(reader.stringArray());
                     break;
                 case "dicomInstalled":
                     webapp.setInstalled(reader.booleanValue());
@@ -898,5 +938,131 @@ public class JsonConfiguration {
         reader.expect(JsonParser.Event.END_OBJECT);
         if (webapp.getApplicationName() == null)
             throw new JsonParsingException("Missing property: dcmWebAppName", reader.getLocation());
+    }
+
+    private void writeKeycloackClientsTo(Device device, JsonWriter writer) {
+        Collection<KeycloakClient> clients = device.getKeycloakClients();
+        if (clients.isEmpty())
+            return;
+
+        writer.writeStartArray("dcmKeycloakClient");
+        for (KeycloakClient client : clients) {
+            writer.writeStartObject();
+            writer.writeNotNullOrDef("dcmKeycloakClientID", client.getKeycloakClientID(), null);
+            writer.writeNotNullOrDef("dcmURI", client.getKeycloakServerURL(), null);
+            writer.writeNotNullOrDef("dcmKeycloakRealm", client.getKeycloakRealm(), null);
+            writer.writeNotNullOrDef("dcmKeycloakGrantType", client.getKeycloakGrantType(), null);
+            writer.writeNotNullOrDef("dcmKeycloakClientSecret", client.getKeycloakClientSecret(), null);
+            writer.writeNotDef("dcmTLSAllowAnyHostname", client.isTLSAllowAnyHostname(), false);
+            writer.writeNotDef("dcmTLSDisableTrustManager", client.isTLSDisableTrustManager(), false);
+            writer.writeNotNullOrDef("uid", client.getUserID(), null);
+            writer.writeNotNullOrDef("userPassword", client.getPassword(), null);
+            writer.writeEnd();
+        }
+        writer.writeEnd();
+    }
+
+    private void loadKeycloakClients(Device device, JsonReader reader) {
+        reader.next();
+        reader.expect(JsonParser.Event.START_ARRAY);
+        while (reader.next() == JsonParser.Event.START_OBJECT) {
+            KeycloakClient client = new KeycloakClient();
+            loadFrom(client, reader);
+            device.addKeycloakClient(client);
+        }
+        reader.expect(JsonParser.Event.END_ARRAY);
+    }
+
+    private void loadFrom(KeycloakClient client, JsonReader reader) {
+        while (reader.next() == JsonParser.Event.KEY_NAME) {
+            switch (reader.getString()) {
+                case "dcmKeycloakClientID":
+                    client.setKeycloakClientID(reader.stringValue());
+                    break;
+                case "dcmURI":
+                    client.setKeycloakServerURL(reader.stringValue());
+                    break;
+                case "dcmKeycloakRealm":
+                    client.setKeycloakRealm(reader.stringValue());
+                    break;
+                case "dcmKeycloakGrantType":
+                    client.setKeycloakGrantType(KeycloakClient.GrantType.valueOf(reader.stringValue()));
+                    break;
+                case "dcmKeycloakClientSecret":
+                    client.setKeycloakClientSecret(reader.stringValue());
+                    break;
+                case "dcmTLSAllowAnyHostname":
+                    client.setTLSAllowAnyHostname(reader.booleanValue());
+                    break;
+                case "dcmTLSDisableTrustManager":
+                    client.setTLSDisableTrustManager(reader.booleanValue());
+                    break;
+                case "uid":
+                    client.setUserID(reader.stringValue());
+                    break;
+                case "userPassword":
+                    client.setPassword(reader.stringValue());
+                    break;
+                default:
+                    reader.skipUnknownProperty();
+            }
+        }
+        reader.expect(JsonParser.Event.END_OBJECT);
+        if (client.getKeycloakClientID() == null)
+            throw new JsonParsingException("Missing property: dcmKeycloakClientID", reader.getLocation());
+    }
+
+    public void writeBulkdataDescriptors(Map<String, BasicBulkDataDescriptor> descriptors, JsonWriter writer) {
+        if (descriptors.isEmpty())
+            return;
+
+        writer.writeStartArray("dcmBulkDataDescriptor");
+        for (BasicBulkDataDescriptor descriptor : descriptors.values())
+            writeTo(descriptor, writer);
+        writer.writeEnd();
+    }
+
+    private void writeTo(BasicBulkDataDescriptor descriptor, JsonWriter writer) {
+        writer.writeStartObject();
+        writer.writeNotNullOrDef("dcmBulkDataDescriptorID", descriptor.getBulkDataDescriptorID(), null);
+        writer.writeNotDef("dcmBulkDataExcludeDefaults", descriptor.isExcludeDefaults(), false);
+        writer.writeNotEmpty("dcmAttributeSelector", descriptor.getAttributeSelectors());
+        writer.writeNotEmpty("dcmBulkDataVRLengthThreshold", descriptor.getLengthsThresholdsAsStrings());
+        writer.writeEnd();
+    }
+
+    public void loadBulkdataDescriptors(Map<String, BasicBulkDataDescriptor> descriptors, JsonReader reader) {
+        reader.next();
+        reader.expect(JsonParser.Event.START_ARRAY);
+        while (reader.next() == JsonParser.Event.START_OBJECT) {
+            BasicBulkDataDescriptor descriptor = new BasicBulkDataDescriptor();
+            loadFrom(descriptor, reader);
+            descriptors.put(descriptor.getBulkDataDescriptorID(), descriptor);
+        }
+        reader.expect(JsonParser.Event.END_ARRAY);
+    }
+
+    private void loadFrom(BasicBulkDataDescriptor descriptor, JsonReader reader) {
+        while (reader.next() == JsonParser.Event.KEY_NAME) {
+            switch (reader.getString()) {
+                case "dcmBulkDataDescriptorID":
+                    descriptor.setBulkDataDescriptorID(reader.stringValue());
+                    break;
+                case "dcmBulkDataExcludeDefaults":
+                    descriptor.excludeDefaults(reader.booleanValue());
+                    break;
+                case "dcmAttributeSelector":
+                    descriptor.setAttributeSelectorsFromStrings(reader.stringArray());
+                    break;
+                case "dcmBulkDataVRLengthThreshold":
+                    descriptor.setLengthsThresholdsFromStrings(reader.stringArray());
+                    break;
+                default:
+                    reader.skipUnknownProperty();
+            }
+        }
+        reader.expect(JsonParser.Event.END_OBJECT);
+        if (descriptor.getBulkDataDescriptorID() == null)
+            throw new JsonParsingException("Missing property: dcmBulkDataDescriptorID", reader.getLocation());
     }
 }

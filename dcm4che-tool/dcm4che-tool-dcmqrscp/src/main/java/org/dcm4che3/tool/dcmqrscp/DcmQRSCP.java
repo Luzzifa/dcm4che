@@ -55,7 +55,6 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.MissingOptionException;
-import org.apache.commons.cli.Option.Builder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.ParseException;
@@ -85,19 +84,7 @@ import org.dcm4che3.net.TransferCapability;
 import org.dcm4che3.net.pdu.AAssociateRQ;
 import org.dcm4che3.net.pdu.ExtendedNegotiation;
 import org.dcm4che3.net.pdu.PresentationContext;
-import org.dcm4che3.net.service.AbstractDicomService;
-import org.dcm4che3.net.service.BasicCEchoSCP;
-import org.dcm4che3.net.service.BasicCFindSCP;
-import org.dcm4che3.net.service.BasicCGetSCP;
-import org.dcm4che3.net.service.BasicCMoveSCP;
-import org.dcm4che3.net.service.BasicCStoreSCP;
-import org.dcm4che3.net.service.BasicRetrieveTask;
-import org.dcm4che3.net.service.DicomServiceException;
-import org.dcm4che3.net.service.DicomServiceRegistry;
-import org.dcm4che3.net.service.InstanceLocator;
-import org.dcm4che3.net.service.QueryRetrieveLevel;
-import org.dcm4che3.net.service.QueryTask;
-import org.dcm4che3.net.service.RetrieveTask;
+import org.dcm4che3.net.service.*;
 import org.dcm4che3.tool.common.CLIUtils;
 import org.dcm4che3.tool.common.FilesetInfo;
 import org.dcm4che3.util.AttributesFormat;
@@ -116,14 +103,20 @@ public class DcmQRSCP {
 
     static final Logger LOG = LoggerFactory.getLogger(DcmQRSCP.class);
 
-    private static final String[] PATIENT_ROOT_LEVELS = {
-        "PATIENT", "STUDY", "SERIES", "IMAGE" };
-    private static final String[] STUDY_ROOT_LEVELS = {
-        "STUDY", "SERIES", "IMAGE" };
-    private static final String[] PATIENT_STUDY_ONLY_LEVELS = {
-        "PATIENT", "STUDY" };
+    private static final EnumSet<QueryRetrieveLevel2> PATIENT_ROOT_LEVELS = EnumSet.of(
+            QueryRetrieveLevel2.PATIENT,
+            QueryRetrieveLevel2.STUDY,
+            QueryRetrieveLevel2.SERIES,
+            QueryRetrieveLevel2.IMAGE);
+    private static final EnumSet<QueryRetrieveLevel2> STUDY_ROOT_LEVELS = EnumSet.of(
+            QueryRetrieveLevel2.STUDY,
+            QueryRetrieveLevel2.SERIES,
+            QueryRetrieveLevel2.IMAGE);
+    private static final EnumSet<QueryRetrieveLevel2> PATIENT_STUDY_ONLY_LEVELS = EnumSet.of(
+            QueryRetrieveLevel2.PATIENT,
+            QueryRetrieveLevel2.STUDY);
     private static ResourceBundle rb =
-         ResourceBundle.getBundle("org.dcm4che3.tool.dcmqrscp.messages");
+            ResourceBundle.getBundle("org.dcm4che3.tool.dcmqrscp.messages");
 
     private final Device device = new Device("dcmqrscp");
     private final ApplicationEntity ae = new ApplicationEntity("*");
@@ -134,11 +127,15 @@ public class DcmQRSCP {
     private AttributesFormat filePathFormat;
     private RecordFactory recFact;
     private String availability;
+    private boolean relationalLenient;
     private boolean stgCmtOnSameAssoc;
     private boolean sendPendingCGet;
     private int sendPendingCMoveInterval;
     private int delayCFind;
     private int delayCStore;
+    private int errorCFind;
+    private int errorCMove;
+    private int errorCGet;
     private boolean ignoreCaseOfPN;
     private boolean matchNoValue;
     private final FilesetInfo fsInfo = new FilesetInfo();
@@ -220,21 +217,21 @@ public class DcmQRSCP {
 
     private final class CFindSCPImpl extends BasicCFindSCP {
 
-        private final String[] qrLevels;
-        private final QueryRetrieveLevel rootLevel;
+        private final EnumSet<QueryRetrieveLevel2> qrLevels;
 
-        public CFindSCPImpl(String sopClass, String... qrLevels) {
+        public CFindSCPImpl(String sopClass, EnumSet<QueryRetrieveLevel2> qrLevels) {
             super(sopClass);
             this.qrLevels = qrLevels;
-            this.rootLevel = QueryRetrieveLevel.valueOf(qrLevels[0]);
         }
 
         @Override
         protected QueryTask calculateMatches(Association as, PresentationContext pc,
                 Attributes rq, Attributes keys) throws DicomServiceException {
-            QueryRetrieveLevel level = QueryRetrieveLevel.valueOf(keys, qrLevels);
-            level.validateQueryKeys(keys, rootLevel,
-                    rootLevel == QueryRetrieveLevel.IMAGE || relational(as, rq));
+            QueryRetrieveLevel2 level = QueryRetrieveLevel2.validateQueryIdentifier(
+                    keys, qrLevels, relational(as, rq), relationalLenient);
+            if (errorCFind != 0)
+                throw new DicomServiceException(errorCFind);
+
             switch(level) {
             case PATIENT:
                 return new PatientQueryTask(as, pc, rq, keys, DcmQRSCP.this);
@@ -259,26 +256,23 @@ public class DcmQRSCP {
 
     private final class CGetSCPImpl extends BasicCGetSCP {
 
-        private final String[] qrLevels;
+        private final EnumSet<QueryRetrieveLevel2> qrLevels;
         private final boolean withoutBulkData;
-        private final QueryRetrieveLevel rootLevel;
 
-        public CGetSCPImpl(String sopClass, String... qrLevels) {
+        public CGetSCPImpl(String sopClass, EnumSet<QueryRetrieveLevel2> qrLevels) {
             super(sopClass);
             this.qrLevels = qrLevels;
-            this.withoutBulkData = qrLevels.length == 0;
-            this.rootLevel = withoutBulkData
-                    ? QueryRetrieveLevel.IMAGE
-                    : QueryRetrieveLevel.valueOf(qrLevels[0]);
+            this.withoutBulkData = qrLevels.size() == 1;
         }
 
         @Override
         protected RetrieveTask calculateMatches(Association as, PresentationContext pc,
                 Attributes rq, Attributes keys) throws DicomServiceException {
-            QueryRetrieveLevel level = withoutBulkData 
-                    ? QueryRetrieveLevel.IMAGE
-                    : QueryRetrieveLevel.valueOf(keys, qrLevels);
-            level.validateRetrieveKeys(keys, rootLevel, relational(as, rq));
+            QueryRetrieveLevel2.validateRetrieveIdentifier(
+                    keys, qrLevels, relational(as, rq), relationalLenient);
+            if (errorCGet != 0)
+                throw new DicomServiceException(errorCGet);
+
             List<InstanceLocator> matches = DcmQRSCP.this.calculateMatches(keys);
             if (matches.isEmpty())
                 return null;
@@ -299,20 +293,21 @@ public class DcmQRSCP {
 
     private final class CMoveSCPImpl extends BasicCMoveSCP {
 
-        private final String[] qrLevels;
-        private final QueryRetrieveLevel rootLevel;
+        private final EnumSet<QueryRetrieveLevel2> qrLevels;
 
-        public CMoveSCPImpl(String sopClass, String... qrLevels) {
+        public CMoveSCPImpl(String sopClass, EnumSet<QueryRetrieveLevel2>  qrLevels) {
             super(sopClass);
             this.qrLevels = qrLevels;
-            this.rootLevel = QueryRetrieveLevel.valueOf(qrLevels[0]);
         }
 
         @Override
         protected RetrieveTask calculateMatches(Association as, PresentationContext pc,
                 final Attributes rq, Attributes keys) throws DicomServiceException {
-            QueryRetrieveLevel level = QueryRetrieveLevel.valueOf(keys, qrLevels);
-            level.validateRetrieveKeys(keys, rootLevel, relational(as, rq));
+            QueryRetrieveLevel2.validateRetrieveIdentifier(
+                    keys, qrLevels, relational(as, rq), relationalLenient);
+            if (errorCMove != 0)
+                throw new DicomServiceException(errorCMove);
+
             String moveDest = rq.getString(Tag.MoveDestination);
             final Connection remote = getRemoteConnection(moveDest);
             if (remote == null)
@@ -449,7 +444,8 @@ public class DcmQRSCP {
                         PATIENT_STUDY_ONLY_LEVELS));
         serviceRegistry.addDicomService(
                 new CGetSCPImpl(
-                        UID.CompositeInstanceRetrieveWithoutBulkDataGET));
+                        UID.CompositeInstanceRetrieveWithoutBulkDataGET,
+                        EnumSet.of(QueryRetrieveLevel2.IMAGE)));
         serviceRegistry.addDicomService(
                 new CMoveSCPImpl(
                         UID.PatientRootQueryRetrieveInformationModelMOVE,
@@ -521,6 +517,14 @@ public class DcmQRSCP {
         this.matchNoValue = matchNoValue;
     }
 
+    public boolean isRelationalLenient() {
+        return relationalLenient;
+    }
+
+    public void setRelationalLenient(boolean relationalLenient) {
+        this.relationalLenient = relationalLenient;
+    }
+
     public boolean isStgCmtOnSameAssoc() {
         return stgCmtOnSameAssoc;
     }
@@ -561,6 +565,30 @@ public class DcmQRSCP {
         this.delayCStore = delayCStore;
     }
 
+    public int getErrorCFind() {
+        return errorCFind;
+    }
+
+    public void setErrorCFind(int errorCFind) {
+        this.errorCFind = errorCFind;
+    }
+
+    public int getErrorCMove() {
+        return errorCMove;
+    }
+
+    public void setErrorCMove(int errorCMove) {
+        this.errorCMove = errorCMove;
+    }
+
+    public int getErrorCGet() {
+        return errorCGet;
+    }
+
+    public void setErrorCGet(int errorCGet) {
+        this.errorCGet = errorCGet;
+    }
+
     public final void setRecordFactory(RecordFactory recFact) {
         this.recFact = recFact;
     }
@@ -578,6 +606,8 @@ public class DcmQRSCP {
         CLIUtils.addAcceptTimeoutOption(opts);
         CLIUtils.addAEOptions(opts);
         CLIUtils.addCommonOptions(opts);
+        CLIUtils.addSendTimeoutOption(opts);
+        CLIUtils.addStoreTimeoutOption(opts);
         CLIUtils.addResponseTimeoutOption(opts);
         addDicomDirOption(opts);
         addTransferCapabilityOptions(opts);
@@ -588,7 +618,29 @@ public class DcmQRSCP {
         addDelayCFindOptions(opts);
         addDelayCStoreOptions(opts);
         addRemoteConnectionsOption(opts);
+        addRoleSelectLenientOption(opts);
+        addRelationalLenientOption(opts);
+        addErrorStatusOption(opts, "cfind-error");
+        addErrorStatusOption(opts, "cmove-error");
+        addErrorStatusOption(opts, "cget-error");
         return CLIUtils.parseComandLine(args, opts, rb, DcmQRSCP.class);
+    }
+
+    private static void addErrorStatusOption(Options opts, String option) {
+        opts.addOption(Option.builder()
+                .hasArg()
+                .argName("code")
+                .desc(rb.getString(option))
+                .longOpt(option)
+                .build());
+    }
+
+    private static Options addRoleSelectLenientOption(Options opts) {
+        return opts.addOption(null, "role-select-lenient", false, rb.getString("role-select-lenient"));
+    }
+
+    private static Options addRelationalLenientOption(Options opts) {
+        return opts.addOption(null, "relational-lenient", false, rb.getString("relational-lenient"));
     }
 
     @SuppressWarnings("static-access")
@@ -716,6 +768,11 @@ public class DcmQRSCP {
             configureDelayCFind(main, cl);
             configureDelayCStore(main, cl);
             configureRemoteConnections(main, cl);
+            configureRoleSelectLenient(main, cl);
+            configureRelationalLenient(main, cl);
+            main.setErrorCFind(CLIUtils.getIntOption(cl, "cfind-error", 0));
+            main.setErrorCMove(CLIUtils.getIntOption(cl, "cmove-error", 0));
+            main.setErrorCGet(CLIUtils.getIntOption(cl, "cget-error", 0));
             ExecutorService executorService = Executors.newCachedThreadPool();
             ScheduledExecutorService scheduledExecutorService = 
                     Executors.newSingleThreadScheduledExecutor();
@@ -731,6 +788,14 @@ public class DcmQRSCP {
             e.printStackTrace();
             System.exit(2);
         }
+    }
+
+    private static void configureRelationalLenient(DcmQRSCP main, CommandLine cl) {
+        main.setRelationalLenient(cl.hasOption("relational-lenient"));
+    }
+
+    private static void configureRoleSelectLenient(DcmQRSCP main, CommandLine cl) {
+        main.device.setRoleSelectionNegotiationLenient(cl.hasOption("role-select-lenient"));
     }
 
     private static void configureDicomFileSet(DcmQRSCP main, CommandLine cl) throws Exception {

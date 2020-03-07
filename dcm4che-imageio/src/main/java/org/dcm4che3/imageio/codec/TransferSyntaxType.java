@@ -38,92 +38,156 @@
 
 package org.dcm4che3.imageio.codec;
 
-import java.util.HashMap;
-
+import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.UID;
+import org.dcm4che3.data.VR;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  *
  */
 public enum TransferSyntaxType {
-    NATIVE {
-        @Override
-        public boolean isPixeldataEncapsulated() {
-            return false;
-        }
-    },
-    JPEG_BASELINE {
-        @Override
-        public int getMaxBitsStored() { return 8; }
-    },
-    JPEG_EXTENDED {
-        @Override
-        public int getMaxBitsStored() { return 12; }
-    },
-    JPEG_LOSSLESS,
-    JPEG_2000 {
-        @Override
-        public boolean canEncodeSigned() { return true; }
-    },
-    RLE {
-        @Override
-        public int getPlanarConfiguration() { return 1; }
-    },
-    JPIP {
-        @Override
-        public boolean isPixeldataEncapsulated() {
-            return false;
-        }
-    },
-    MPEG {
-        @Override
-        public int getMaxBitsStored() { return 8; }
-    };
+    NATIVE(false, false, true, 16, 0),
+    JPEG_BASELINE(true, true, false, 8, 0),
+    JPEG_EXTENDED(true, true, false, 12, 0),
+    JPEG_SPECTRAL(true, true, false, 12, 0),
+    JPEG_PROGRESSIVE(true, true, false, 12, 0),
+    JPEG_LOSSLESS(true, true, true, 16, 0),
+    JPEG_LS(true, true, true, 16, 0),
+    JPEG_2000(true, true, true, 16, 0),
+    RLE(true, false, true, 16, 1),
+    JPIP(false, false, true, 16, 0),
+    MPEG(true, false, false, 8, 0),
+    DEFLATED(false, false, true, 16, 0),
+    UNKNOWN(false, false, true, 16, 0);
+
+    private final boolean pixeldataEncapsulated;
+    private final boolean frameSpanMultipleFragments;
+    private final boolean encodeSigned;
+    private final int maxBitsStored;
+    private final int planarConfiguration;
+
+    TransferSyntaxType(boolean pixeldataEncapsulated, boolean frameSpanMultipleFragments, boolean encodeSigned,
+            int maxBitsStored, int planarConfiguration) {
+        this.pixeldataEncapsulated = pixeldataEncapsulated;
+        this.frameSpanMultipleFragments = frameSpanMultipleFragments;
+        this.encodeSigned = encodeSigned;
+        this.maxBitsStored = maxBitsStored;
+        this.planarConfiguration = planarConfiguration;
+    }
 
     public boolean isPixeldataEncapsulated() {
-        return true;
+        return pixeldataEncapsulated;
     }
 
     public boolean canEncodeSigned() {
-        return false;
+        return encodeSigned;
+    }
+
+    public boolean mayFrameSpanMultipleFragments() {
+        return frameSpanMultipleFragments;
     }
 
     public int getPlanarConfiguration() {
-        return 0;
+        return planarConfiguration;
     }
 
     public int getMaxBitsStored() {
-        return 16;
+        return maxBitsStored;
     }
 
-    private static final HashMap<String, TransferSyntaxType> map =
-            new HashMap<String, TransferSyntaxType>();
-    static {
-        map.put(UID.ImplicitVRLittleEndian, NATIVE);
-        map.put(UID.ExplicitVRLittleEndian, NATIVE);
-        map.put(UID.DeflatedExplicitVRLittleEndian, NATIVE);
-        map.put(UID.ExplicitVRBigEndianRetired, NATIVE);
-        map.put(UID.JPEGBaseline1, JPEG_BASELINE);
-        map.put(UID.JPEGExtended24, JPEG_EXTENDED);
-        map.put(UID.JPEGLosslessNonHierarchical14, JPEG_LOSSLESS);
-        map.put(UID.JPEGLossless, JPEG_LOSSLESS);
-        map.put(UID.JPEGLSLossless, JPEG_LOSSLESS);
-        map.put(UID.JPEGLSLossyNearLossless, JPEG_LOSSLESS);
-        map.put(UID.JPEG2000LosslessOnly, JPEG_2000);
-        map.put(UID.JPEG2000, JPEG_2000);
-        map.put(UID.JPEG2000Part2MultiComponentLosslessOnly, JPEG_2000);
-        map.put(UID.JPEG2000Part2MultiComponent, JPEG_2000);
-        map.put(UID.JPIPReferenced, JPIP);
-        map.put(UID.JPIPReferencedDeflate, JPIP);
-        map.put(UID.MPEG2, MPEG);
-        map.put(UID.MPEG2MainProfileHighLevel, MPEG);
-        map.put(UID.MPEG4AVCH264HighProfileLevel41, MPEG);
-        map.put(UID.MPEG4AVCH264BDCompatibleHighProfileLevel41, MPEG);
-        map.put(UID.RLELossless, RLE);
+    public boolean adjustBitsStoredTo12(Attributes attrs) {
+        if (maxBitsStored == 12) {
+            int bitsStored = attrs.getInt(Tag.BitsStored, 8);
+            if (bitsStored > 8 && bitsStored < 12) {
+                attrs.setInt(Tag.BitsStored, VR.US, bitsStored = 12);
+                attrs.setInt(Tag.HighBit, VR.US, 11);
+                return true;
+            }
+        }
+        return false;
     }
 
     public static TransferSyntaxType forUID(String uid) {
-        return map.get(uid);
+        switch(uid) {
+            case UID.ImplicitVRLittleEndian:
+            case UID.ExplicitVRLittleEndian:
+            case UID.ExplicitVRBigEndianRetired:
+                return NATIVE;
+            case UID.DeflatedExplicitVRLittleEndian:
+                return DEFLATED;
+            case UID.JPEGBaseline1:
+                return JPEG_BASELINE;
+            case UID.JPEGExtended24:
+                return JPEG_EXTENDED;
+            case UID.JPEGSpectralSelectionNonHierarchical68Retired:
+                return JPEG_SPECTRAL;
+            case UID.JPEGFullProgressionNonHierarchical1012Retired:
+                return JPEG_PROGRESSIVE;
+            case UID.JPEGLosslessNonHierarchical14:
+            case UID.JPEGLossless:
+                return JPEG_LOSSLESS;
+            case UID.JPEGLSLossless:
+            case UID.JPEGLSLossyNearLossless:
+                return JPEG_LS;
+            case UID.JPEG2000LosslessOnly:
+            case UID.JPEG2000:
+            case UID.JPEG2000Part2MultiComponentLosslessOnly:
+            case UID.JPEG2000Part2MultiComponent:
+                return JPEG_2000;
+            case UID.JPIPReferenced:
+            case UID.JPIPReferencedDeflate:
+                return JPIP;
+            case UID.MPEG2:
+            case UID.MPEG2MainProfileHighLevel:
+            case UID.MPEG4AVCH264HighProfileLevel41:
+            case UID.MPEG4AVCH264BDCompatibleHighProfileLevel41:
+            case UID.MPEG4AVCH264HighProfileLevel42For2DVideo:
+            case UID.MPEG4AVCH264HighProfileLevel42For3DVideo:
+            case UID.MPEG4AVCH264StereoHighProfileLevel42:
+            case UID.HEVCH265MainProfileLevel51:
+            case UID.HEVCH265Main10ProfileLevel51:
+                return MPEG;
+            case UID.RLELossless:
+                return RLE;
+        }
+        return UNKNOWN;
+    }
+
+    public static boolean isLossyCompression(String uid) {
+        switch(uid) {
+            case UID.JPEGBaseline1:
+            case UID.JPEGExtended24:
+            case UID.JPEGSpectralSelectionNonHierarchical68Retired:
+            case UID.JPEGFullProgressionNonHierarchical1012Retired:
+            case UID.JPEGLSLossyNearLossless:
+            case UID.JPEG2000:
+            case UID.JPEG2000Part2MultiComponent:
+            case UID.MPEG2:
+            case UID.MPEG2MainProfileHighLevel:
+            case UID.MPEG4AVCH264HighProfileLevel41:
+            case UID.MPEG4AVCH264BDCompatibleHighProfileLevel41:
+            case UID.MPEG4AVCH264HighProfileLevel42For2DVideo:
+            case UID.MPEG4AVCH264HighProfileLevel42For3DVideo:
+            case UID.MPEG4AVCH264StereoHighProfileLevel42:
+            case UID.HEVCH265MainProfileLevel51:
+            case UID.HEVCH265Main10ProfileLevel51:
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean isYBRCompression(String uid) {
+        switch(uid) {
+            case UID.JPEGBaseline1:
+            case UID.JPEGExtended24:
+            case UID.JPEGSpectralSelectionNonHierarchical68Retired:
+            case UID.JPEGFullProgressionNonHierarchical1012Retired:
+            case UID.JPEG2000LosslessOnly:
+            case UID.JPEG2000:
+                return true;
+        }
+        return false;
     }
 }

@@ -41,10 +41,7 @@
 
 package org.dcm4che3.net;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -58,8 +55,11 @@ public class WebApplicationInfo {
     private String servicePath;
     private String aeTitle;
     private String[] applicationClusters = {};
+    private String keycloakClientID;
+    private KeycloakClient keycloakClient;
     private Boolean installed;
-    private EnumSet<WebApplication.ServiceClass> serviceClasses = EnumSet.noneOf(WebApplication.ServiceClass.class);
+    private final EnumSet<WebApplication.ServiceClass> serviceClasses = EnumSet.noneOf(WebApplication.ServiceClass.class);
+    private final Map<String, String> properties = new HashMap<>();
     private final List<Connection> conns = new ArrayList<>(1);
 
     public String getDeviceName() {
@@ -110,6 +110,22 @@ public class WebApplicationInfo {
         this.applicationClusters = applicationClusters;
     }
 
+    public String getKeycloakClientID() {
+        return keycloakClientID;
+    }
+
+    public void setKeycloakClientID(String keycloakClientID) {
+        this.keycloakClientID = keycloakClientID;
+    }
+
+    public KeycloakClient getKeycloakClient() {
+        return keycloakClient;
+    }
+
+    public void setKeycloakClient(KeycloakClient keycloakClient) {
+        this.keycloakClient = keycloakClient;
+    }
+
     public Boolean getInstalled() {
         return installed;
     }
@@ -131,12 +147,40 @@ public class WebApplicationInfo {
         this.serviceClasses.addAll(Arrays.asList(serviceClasses));
     }
 
+    public void setProperty(String name, String value) {
+        properties.put(name, value);
+    }
+
+    public String getProperty(String name, String defValue) {
+        String value = properties.get(name);
+        return value != null ? value : defValue;
+    }
+
+    public Map<String,String> getProperties() {
+        return properties;
+    }
+
+    public void setProperties(String[] ss) {
+        properties.clear();
+        for (String s : ss) {
+            int index = s.indexOf('=');
+            if (index < 0)
+                throw new IllegalArgumentException("Property in incorrect format : " + s);
+            setProperty(s.substring(0, index), s.substring(index+1));
+        }
+    }
+
     @Override
     public String toString() {
         return "WebApplicationInfo[name=" + applicationName
                 + ",classes=" + serviceClasses
                 + ",path=" + servicePath
                 + ",aet=" + aeTitle
+                + ",applicationClusters=" + Arrays.toString(applicationClusters)
+                + ",keycloakClientID=" + keycloakClientID
+                + ",serviceClasses=" + serviceClasses
+                + ",properties=" + properties
+                + ",installed=" + installed
                 + ']';
     }
 }

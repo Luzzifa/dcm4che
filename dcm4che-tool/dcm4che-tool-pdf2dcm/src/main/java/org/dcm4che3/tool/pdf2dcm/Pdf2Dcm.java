@@ -16,7 +16,7 @@
  *
  *  The Initial Developer of the Original Code is
  *  J4Care.
- *  Portions created by the Initial Developer are Copyright (C) 2015-2017
+ *  Portions created by the Initial Developer are Copyright (C) 2018-2019
  *  the Initial Developer. All Rights Reserved.
  *
  *  Contributor(s):
@@ -45,11 +45,13 @@ import org.dcm4che3.io.SAXReader;
 import org.dcm4che3.tool.common.CLIUtils;
 import org.dcm4che3.util.StreamUtils;
 import org.dcm4che3.util.UIDUtils;
+import org.xml.sax.SAXException;
 
+import javax.xml.parsers.ParserConfigurationException;
 import java.io.*;
-import java.nio.file.Files;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.text.MessageFormat;
-import java.util.Date;
 import java.util.List;
 import java.util.ResourceBundle;
 
@@ -59,9 +61,9 @@ import java.util.ResourceBundle;
  */
 
 public class Pdf2Dcm {
-    private static final ElementDictionary DICT = ElementDictionary.getStandardElementDictionary();
     private static final ResourceBundle rb = ResourceBundle.getBundle("org.dcm4che3.tool.pdf2dcm.messages");
     private static final long MAX_FILE_SIZE = 0x7FFFFFFE;
+    private static final ElementDictionary DICT = ElementDictionary.getStandardElementDictionary();
 
     private static final int[] IUID_TAGS = {
             Tag.StudyInstanceUID,
@@ -69,20 +71,29 @@ public class Pdf2Dcm {
             Tag.SOPInstanceUID
     };
 
-    private Attributes metadata;
+    private static final int[] TYPE2_TAGS = {
+            Tag.ContentDate,
+            Tag.ContentTime,
+            Tag.AcquisitionDateTime
+    };
 
-    private void setMetadata(Attributes metadata) {
-        this.metadata = metadata;
-    }
+    private static Attributes staticMetadata;
 
     public static void main(String[] args) {
         try {
             CommandLine cl = parseComandLine(args);
             Pdf2Dcm pdf2Dcm = new Pdf2Dcm();
             final List<String> argList = cl.getArgList();
-            File inFile = new File(argList.get(0));
-            pdf2Dcm.setMetadata(createMetadata(cl, inFile));
-            pdf2Dcm.convert(inFile, new File(argList.get(1)));
+            int argc = argList.size();
+            if (argc < 2)
+                throw new ParseException(rb.getString("missing"));
+            File dest = new File(argList.get(argc-1));
+            if ((argc > 2 || new File(argList.get(0)).isDirectory())
+                    && !dest.isDirectory())
+                throw new ParseException(
+                        MessageFormat.format(rb.getString("nodestdir"), dest));
+            createStaticMetadata(cl);
+            pdf2Dcm.convert(cl.getArgList());
         } catch (ParseException e) {
             System.err.println("pdf2dcm: " + e.getMessage());
             System.err.println(rb.getString("try"));
@@ -108,60 +119,137 @@ public class Pdf2Dcm {
                 .argName("xml-file")
                 .desc(rb.getString("file"))
                 .build());
-        OptionGroup group = new OptionGroup();
-        group.addOption(Option.builder()
-                .longOpt("pdf")
-                .hasArg(false)
-                .desc(rb.getString("pdf"))
-                .build());
-        group.addOption(Option.builder()
-                .longOpt("cda")
-                .hasArg(false)
-                .desc(rb.getString("cda"))
-                .build());
-        opts.addOptionGroup(group);
-        CommandLine cl = CLIUtils.parseComandLine(args, opts, rb, Pdf2Dcm.class);
-        int numArgs = cl.getArgList().size();
-        if (numArgs == 0)
-            throw new ParseException(rb.getString("missing"));
-        if (numArgs > 2)
-            throw new ParseException(rb.getString("too-many"));
-        return cl;
+        return CLIUtils.parseComandLine(args, opts, rb, Pdf2Dcm.class);
     }
 
-    private static Attributes createMetadata(CommandLine cl, File bulkDataFile) throws Exception {
-        String filePath = bulkDataFile.toPath().toString();
-        boolean pdf = filePath.endsWith("pdf");
-        boolean cda = filePath.endsWith("xml");
-        if (!pdf && !cda)
-           throw new IllegalArgumentException("File extension type not supported.");
+    enum FileType {
+        PDF("resource:encapsulatedPDFMetadata.xml"),
+        XML("resource:encapsulatedCDAMetadata.xml"),
+        SLA("resource:encapsulatedSTLMetadata.xml"),
+        MTL("resource:encapsulatedMTLMetadata.xml"),
+        OBJ("resource:encapsulatedOBJMetadata.xml");
 
-        Attributes metadata = cl.hasOption("pdf")
-                ? SAXReader.parse(StreamUtils.openFileOrURL("resource:encapsulatedPDFMetadata.xml"))
-                : cl.hasOption("cda")
-                    ? SAXReader.parse(StreamUtils.openFileOrURL("resource:encapsulatedCDAMetadata.xml"))
-                    : new Attributes();
-        if (cl.hasOption("f"))
-            metadata = SAXReader.parse(cl.getOptionValue("f"), metadata);
-        CLIUtils.addAttributes(metadata, cl.getOptionValues("m"));
-        supplementMissingUIDs(metadata);
-        supplementMissingDateTime(metadata, Tag.ContentDateAndTime, new Date());
-        supplementMissingDateTime(metadata, Tag.AcquisitionDateTime, new Date(bulkDataFile.lastModified()));
-        supplementMissingValue(metadata, Tag.MIMETypeOfEncapsulatedDocument, pdf ? "application/pdf" : "text/XML");
-        supplementMissingValue(metadata, Tag.SOPClassUID, pdf ? UID.EncapsulatedPDFStorage : UID.EncapsulatedCDAStorage);
-        return metadata;
-    }
+        private String sampleMetadataFile;
 
-    private void convert(File infile, File outfile) throws IOException {
-        long fileLength = infile.length();
-        if (fileLength > MAX_FILE_SIZE)
-            throw new IllegalArgumentException(MessageFormat.format(rb.getString("file-too-large"), infile));
-
-        try (DicomOutputStream dos = new DicomOutputStream(outfile)) {
-            dos.writeDataset(metadata.createFileMetaInformation(UID.ExplicitVRLittleEndian), metadata);
-            dos.writeAttribute(Tag.EncapsulatedDocument, VR.OB, Files.readAllBytes(infile.toPath()));
+        public String getSampleMetadataFile() {
+            return sampleMetadataFile;
         }
-        System.out.println(MessageFormat.format(rb.getString("converted"), infile, outfile));
+
+        FileType(String sampleMetadataFile) {
+            this.sampleMetadataFile = sampleMetadataFile;
+        }
+
+        static FileType valueOf(Path path) throws IOException {
+            String contentType = contentTypeOfFile(path);
+            if (contentType == null)
+                throw new IllegalArgumentException(
+                        MessageFormat.format(rb.getString("content-type-undetermined"), path));
+
+            try {
+                return valueOf(contentType.substring(contentType.indexOf("/") + 1).toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        MessageFormat.format(rb.getString("invalid-content-type"), contentType, path));
+            }
+        }
+    }
+
+    private static String contentTypeOfFile(Path path) throws IOException {
+        String contentType = Files.probeContentType(path);
+        if (contentType != null)
+            return contentType;
+
+        String fileName = path.toFile().getName();
+        String ext = fileName.substring(fileName.lastIndexOf('.') + 1);
+        return ext.equalsIgnoreCase("obj")
+                ? "model/obj"
+                : ext.equalsIgnoreCase("mtl")
+                    ? "model/mtl" : null;
+    }
+
+    private static void createStaticMetadata(CommandLine cl) throws Exception {
+        staticMetadata = new Attributes();
+        if (cl.hasOption("f"))
+            staticMetadata = SAXReader.parse(cl.getOptionValue("f"));
+
+        CLIUtils.addAttributes(staticMetadata, cl.getOptionValues("m"));
+        supplementMissingUIDs(staticMetadata);
+        supplementType2Tags(staticMetadata);
+    }
+
+    private Attributes createMetadata(FileType fileType) throws Exception {
+        Attributes fileMetadata = SAXReader.parse(StreamUtils.openFileOrURL(fileType.getSampleMetadataFile()));
+        fileMetadata.addAll(staticMetadata);
+        if ((fileType == FileType.SLA || fileType == FileType.OBJ) && !fileMetadata.containsValue(Tag.FrameOfReferenceUID))
+            fileMetadata.setString(Tag.FrameOfReferenceUID, VR.UI, UIDUtils.createUID());
+        return fileMetadata;
+    }
+
+    private void convert(List<String> args) throws Exception {
+        int argsSize = args.size();
+        Path destPath = Paths.get(args.get(argsSize - 1));
+        for (String src : args.subList(0, argsSize - 1)) {
+            Path srcPath = Paths.get(src);
+            if (Files.isDirectory(srcPath))
+                Files.walkFileTree(srcPath, new Pdf2DcmFileVisitor(srcPath, destPath));
+            else if (Files.isDirectory(destPath))
+                convert(srcPath, destPath.resolve(srcPath.getFileName() + ".dcm"));
+            else
+                convert(srcPath, destPath);
+        }
+    }
+
+    class Pdf2DcmFileVisitor extends SimpleFileVisitor<Path> {
+        private Path srcPath;
+        private Path destPath;
+
+        Pdf2DcmFileVisitor(Path srcPath, Path destPath) {
+            this.srcPath = srcPath;
+            this.destPath = destPath;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path srcFilePath, BasicFileAttributes attrs) throws IOException {
+            Path destFilePath = resolveDestFilePath(srcFilePath);
+            if (!Files.isDirectory(destFilePath))
+                Files.createDirectories(destFilePath);
+            try {
+                convert(srcFilePath, destFilePath.resolve(srcFilePath.getFileName() + ".dcm"));
+            } catch (SAXException | ParserConfigurationException e) {
+                System.out.println(MessageFormat.format(rb.getString("failed"), srcFilePath, e.getMessage()));
+                e.printStackTrace(System.out);
+                return FileVisitResult.TERMINATE;
+            } catch (Exception e) {
+                System.out.println(MessageFormat.format(rb.getString("failed"), srcFilePath, e.getMessage()));
+                e.printStackTrace(System.out);
+            }
+            return FileVisitResult.CONTINUE;
+        }
+
+        private Path resolveDestFilePath(Path srcFilePath) {
+            int srcPathNameCount = srcPath.getNameCount();
+            int srcFilePathNameCount = srcFilePath.getNameCount() - 1;
+            if (srcPathNameCount == srcFilePathNameCount)
+                return destPath;
+
+            return destPath.resolve(srcFilePath.subpath(srcPathNameCount, srcFilePathNameCount));
+        }
+    }
+
+    private void convert(Path srcFilePath, Path destFilePath) throws Exception {
+        FileType fileType = FileType.valueOf(srcFilePath);
+        Attributes fileMetadata = createMetadata(fileType);
+        File srcFile = srcFilePath.toFile();
+        File destFile = destFilePath.toFile();
+        long fileLength = srcFile.length();
+        if (fileLength > MAX_FILE_SIZE)
+            throw new IllegalArgumentException(MessageFormat.format(rb.getString("file-too-large"), srcFile));
+
+        try (DicomOutputStream dos = new DicomOutputStream(destFile)) {
+            dos.writeDataset(fileMetadata.createFileMetaInformation(UID.ExplicitVRLittleEndian), fileMetadata);
+            dos.writeAttribute(Tag.EncapsulatedDocument, VR.OB, Files.readAllBytes(srcFile.toPath()));
+        }
+        System.out.println(MessageFormat.format(rb.getString("converted"), srcFile, destFile));
     }
 
     private static void supplementMissingUIDs(Attributes metadata) {
@@ -170,13 +258,9 @@ public class Pdf2Dcm {
                 metadata.setString(tag, VR.UI, UIDUtils.createUID());
     }
 
-    private static void supplementMissingDateTime(Attributes metadata, long tag, Date date) {
-        if (!metadata.containsValue((int) (tag >>> 32)))
-            metadata.setDate(tag, date);
-    }
-
-    private static void supplementMissingValue(Attributes metadata, int tag, String value) {
-        if (!metadata.containsValue(tag))
-            metadata.setString(tag, DICT.vrOf(tag), value);
+    private static void supplementType2Tags(Attributes metadata) {
+        for (int tag : TYPE2_TAGS)
+            if (!metadata.contains(tag))
+                metadata.setNull(tag, DICT.vrOf(tag));
     }
 }

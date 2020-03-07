@@ -120,7 +120,7 @@ public class DicomInputStream extends FilterInputStream
     private boolean excludeBulkData;
     private boolean includeBulkDataURI;
 
-    private boolean catBlkFiles;
+    private boolean catBlkFiles = true;
     private String blkFilePrefix = "blk";
     private String blkFileSuffix;
     private File blkDirectory;
@@ -529,7 +529,8 @@ public class DicomInputStream extends FilterInputStream
                                     // will fail on UN fragments!
                 }
                 excludeBulkData = includeBulkData == IncludeBulkData.NO && isBulkData(attrs);
-                includeBulkDataURI = includeBulkData == IncludeBulkData.URI && isBulkData(attrs);
+                includeBulkDataURI = len != 0 && vr != VR.SQ
+                        && includeBulkData == IncludeBulkData.URI && isBulkData(attrs);
                 handler.readValue(this, attrs);
             } else
                 skipAttribute(UNEXPECTED_ATTRIBUTE);
@@ -652,7 +653,7 @@ public class DicomInputStream extends FilterInputStream
     private void skipAttribute(String message) throws IOException {
         LOG.warn(message,
                  new Object[] { TagUtils.toString(tag), length, tagPos });
-        skip(length);
+        skipFully(length);
     }
 
     private void readSequence(int len, Attributes attrs, int sqtag)
@@ -782,7 +783,11 @@ public class DicomInputStream extends FilterInputStream
             byte[] value = new byte[allocLen];
             readFully(value, 0, allocLen);
             while (allocLen < valLen) {
-                int newLength = Math.min(valLen, allocLen << 1);
+                int newLength = allocLen << 1;
+                if (newLength < 0)
+                    newLength = Integer.MAX_VALUE;
+                if (newLength > valLen)
+                    newLength = valLen;
                 value = Arrays.copyOf(value, newLength);
                 readFully(value, allocLen, newLength - allocLen);
                 allocLen = newLength;
@@ -848,20 +853,30 @@ public class DicomInputStream extends FilterInputStream
                 ByteUtils.bytesToTag(b132, 0, bigEndian));
     }
 
-    private boolean guessTransferSyntax(byte[] b128, int rlen, boolean bigEndian)
+    private boolean guessTransferSyntax(byte[] b132, int rlen, boolean bigEndian)
             throws DicomStreamException {
-        int tag1 = ByteUtils.bytesToTag(b128, 0, bigEndian);
+        int tag1 = ByteUtils.bytesToTag(b132, 0, bigEndian);
         VR vr = ElementDictionary.vrOf(tag1, null);
         if (vr == VR.UN)
             return false;
-        if (ByteUtils.bytesToVR(b128, 4) == vr.code()) {
+        if (ByteUtils.bytesToVR(b132, 4) == vr.code()) {
             this.tsuid = bigEndian ? UID.ExplicitVRBigEndianRetired 
                                    : UID.ExplicitVRLittleEndian;
             this.bigEndian = bigEndian;
             this.explicitVR = true;
             return true;
         }
-        int len = ByteUtils.bytesToInt(b128, 4, bigEndian);
+        int len = ByteUtils.bytesToInt(b132, 4, bigEndian);
+
+        // check if it is a reasonable length for ImplicitVRLittleEndian:
+        // non-negative and not exceeding what we have read into the buffer so
+        // far (under the assumption that the first tag value will not have more
+        // than 64 bytes. That is reasonable to assume, as every Composite
+        // Object will contain a SOP Class UID (0008,0016), and all tags that
+        // could come before that do not have VRs that allow length > 64. In
+        // fact we are reading a maximum value of 132-8=124 bytes initially, so
+        // we would also accept a longer length of 124 bytes for the first tag
+        // value.)
         if (len < 0 || 8 + len > rlen)
             return false;
 

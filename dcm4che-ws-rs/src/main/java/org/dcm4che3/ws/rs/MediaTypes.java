@@ -208,6 +208,17 @@ public class MediaTypes {
             new MediaType("video", "mp4");
 
     /**
+     * "video/quicktime"
+     */
+    public final static String VIDEO_QUICKTIME = "video/quicktime";
+
+    /**
+     * "video/quicktime"
+     */
+    public final static MediaType VIDEO_QUICKTIME_TYPE =
+            new MediaType("video", "quicktime");
+
+    /**
      * "application/pdf"
      */
     public final static String APPLICATION_PDF = "application/pdf";
@@ -285,6 +296,40 @@ public class MediaTypes {
     public final static MediaType MULTIPART_RELATED_APPLICATION_DICOM_XML_TYPE =
             new MediaType("multipart", "related", Collections.singletonMap("type", APPLICATION_DICOM_XML));
 
+    /**
+     * "model/stl"
+     */
+    public final static String MODEL_STL = "model/stl";
+
+    /**
+     * "model/stl"
+     */
+    public final static MediaType MODEL_STL_TYPE =
+            new MediaType("model", "stl");
+
+    /**
+     * "model/obj"
+     */
+    public final static String MODEL_OBJ = "model/obj";
+
+    /**
+     * "model/obj"
+     */
+    public final static MediaType MODEL_OBJ_TYPE =
+            new MediaType("model", "obj");
+
+    /**
+     * "model/mtl"
+     */
+    public final static String MODEL_MTL = "model/mtl";
+
+    /**
+     * "model/mtl"
+     */
+    public final static MediaType MODEL_MTL_TYPE =
+            new MediaType("model", "mtl");
+
+
     public static MediaType forTransferSyntax(String ts) {
         MediaType type;
         switch (ts) {
@@ -350,7 +395,7 @@ public class MediaTypes {
         } else if (type.equals("video")) {
             if (subtype.equals("mpeg"))
                 return UID.MPEG2;
-            else if (subtype.equals("mp4"))
+            else if (subtype.equals("mp4") || subtype.equals("quicktime"))
                 return UID.MPEG4AVCH264HighProfileLevel41;
         }
         return UID.ExplicitVRLittleEndian;
@@ -361,6 +406,10 @@ public class MediaTypes {
         return type.equals("image") ? UID.SecondaryCaptureImageStorage
                 : type.equals("video") ? UID.VideoPhotographicImageStorage
                 : equalsIgnoreParameters(bulkdataMediaType, APPLICATION_PDF_TYPE) ? UID.EncapsulatedPDFStorage
+                : equalsIgnoreParameters(bulkdataMediaType, MediaType.APPLICATION_XML_TYPE) ? UID.EncapsulatedCDAStorage
+                : equalsIgnoreParameters(bulkdataMediaType, MODEL_STL_TYPE) ? UID.EncapsulatedSTLStorage
+                : equalsIgnoreParameters(bulkdataMediaType, MODEL_OBJ_TYPE) ? UID.EncapsulatedOBJStorage
+                : equalsIgnoreParameters(bulkdataMediaType, MODEL_MTL_TYPE) ? UID.EncapsulatedMTLStorage
                 : null;
     }
 
@@ -384,7 +433,7 @@ public class MediaTypes {
         if (mediaType.getParameters().size() > 1) {
             Map<String, String> params = new HashMap<>(mediaType.getParameters());
             params.remove("type");
-            partType = new MediaType(mediaType.getType(), mediaType.getSubtype(), params);
+            partType = new MediaType(partType.getType(), partType.getSubtype(), params);
         }
         return partType;
     }

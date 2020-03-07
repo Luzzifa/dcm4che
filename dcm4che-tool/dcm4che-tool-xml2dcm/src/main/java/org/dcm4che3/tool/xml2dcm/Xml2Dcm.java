@@ -51,7 +51,6 @@ import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
 import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.Option.Builder;
 import org.apache.commons.cli.OptionGroup;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.Option;
@@ -59,28 +58,25 @@ import org.apache.commons.cli.ParseException;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.UID;
 import org.dcm4che3.data.Attributes;
-import org.dcm4che3.io.BulkDataDescriptor;
-import org.dcm4che3.io.ContentHandlerAdapter;
-import org.dcm4che3.io.DicomEncodingOptions;
-import org.dcm4che3.io.DicomInputStream;
-import org.dcm4che3.io.DicomOutputStream;
+import org.dcm4che3.io.*;
 import org.dcm4che3.io.DicomInputStream.IncludeBulkData;
 import org.dcm4che3.tool.common.CLIUtils;
 
 /**
- * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Gunter Zeilinger (gunterze@protonmail.com)
  */
 public class Xml2Dcm {
 
     private static ResourceBundle rb =
         ResourceBundle.getBundle("org.dcm4che3.tool.xml2dcm.messages");
 
+    private boolean lenient = false;
     private IncludeBulkData includeBulkData = IncludeBulkData.URI;
     private boolean catBlkFiles = false;
     private String blkFilePrefix = "blk";
     private String blkFileSuffix;
     private File blkDirectory;
-    private Attributes blkAttrs;
+    private BasicBulkDataDescriptor bulkDataDescriptor = new BasicBulkDataDescriptor();
     private String tsuid;
     private boolean withfmi;
     private boolean nofmi;
@@ -88,6 +84,10 @@ public class Xml2Dcm {
     private List<File> bulkDataFiles;
     private Attributes fmi;
     private Attributes dataset;
+
+    public void setLenient(boolean lenient) {
+        this.lenient = lenient;
+    }
 
     public final void setIncludeBulkData(IncludeBulkData includeBulkData) {
         this.includeBulkData = includeBulkData;
@@ -109,8 +109,12 @@ public class Xml2Dcm {
         this.blkDirectory = blkDirectory;
     }
 
-    public final void setBulkDataAttributes(Attributes blkAttrs) {
-        this.blkAttrs = blkAttrs;
+    public void setBulkDataNoDefaults(boolean excludeDefaults) {
+        bulkDataDescriptor.excludeDefaults(excludeDefaults);
+    }
+
+    public void setBulkDataLengthsThresholdsFromStrings(String[] thresholds) {
+        bulkDataDescriptor.setLengthsThresholdsFromStrings(thresholds);
     }
 
     public final void setTransferSyntax(String uid) {
@@ -129,10 +133,11 @@ public class Xml2Dcm {
         this.encOpts = encOpts;
     }
 
-     private static CommandLine parseComandLine(String[] args)
+    private static CommandLine parseComandLine(String[] args)
             throws ParseException{
         Options opts = new Options();
         CLIUtils.addCommonOptions(opts);
+        addLenientOption(opts);
         addIOFileNameOptions(opts);
         addBulkdataOptions(opts);
         addFileEncodingOptions(opts);
@@ -142,8 +147,14 @@ public class Xml2Dcm {
         return cl;
     }
 
-     @SuppressWarnings("static-access")
-     private static void addIOFileNameOptions(Options opts) {
+    private static void addLenientOption(Options opts) {
+        opts.addOption(Option.builder()
+                .longOpt("lenient")
+                .desc(rb.getString("lenient"))
+                .build());
+    }
+
+    private static void addIOFileNameOptions(Options opts) {
          opts.addOption(Option.builder("x")
                  .hasArg()
                  .argName("xml-file")
@@ -162,7 +173,6 @@ public class Xml2Dcm {
       }
 
 
-     @SuppressWarnings("static-access")
      private static void addBulkdataOptions(Options opts) {
          OptionGroup blkGroup = new OptionGroup();
          blkGroup.addOption(Option.builder("B")
@@ -196,15 +206,22 @@ public class Xml2Dcm {
                   rb.getString("cat-blk-files"));
          opts.addOption(null, "keep-blk-files", false,
                  rb.getString("keep-blk-files"));
-         opts.addOption(Option.builder("X")
-                 .longOpt("blk-spec")
-                 .hasArg()
-                 .argName("xml-file")
-                 .desc(rb.getString("blk-spec"))
+         opts.addOption(null, "blk-nodefs", false,
+                 rb.getString("blk-nodefs"));
+         opts.addOption(Option.builder(null)
+                 .longOpt("blk")
+                 .hasArgs()
+                 .argName("[seq/]attr")
+                 .desc(rb.getString("blk"))
+                 .build());
+         opts.addOption(Option.builder(null)
+                 .longOpt("blk-vr")
+                 .hasArgs()
+                 .argName("vr[,...]=length")
+                 .desc(rb.getString("blk-vr"))
                  .build());
      }
 
-     @SuppressWarnings("static-access")
      private static void addFileEncodingOptions(Options opts) {
         opts.addOption(Option.builder("t")
                 .longOpt("transfer-syntax")
@@ -230,6 +247,7 @@ public class Xml2Dcm {
             CommandLine cl = parseComandLine(args);
             Xml2Dcm main = new Xml2Dcm();
             configureBulkdata(main, cl);
+            main.setLenient(cl.hasOption("lenient"));
             if (cl.hasOption("t")) {
                 main.setTransferSyntax(cl.getOptionValue("t"));
             }
@@ -299,9 +317,12 @@ public class Xml2Dcm {
             xml2dcm.setBulkDataDirectory(tempDir);
         }
         xml2dcm.setConcatenateBulkDataFiles(cl.hasOption("c"));
-        if (cl.hasOption("X")) {
-            xml2dcm.setBulkDataAttributes(
-                    parseXML(cl.getOptionValue("X")));
+        xml2dcm.setBulkDataNoDefaults(cl.hasOption("blk-nodefs"));
+        if (cl.hasOption("blk")) {
+            CLIUtils.addTagPaths(xml2dcm.bulkDataDescriptor, cl.getOptionValues("blk"));
+        }
+        if (cl.hasOption("blk-vr")) {
+            xml2dcm.setBulkDataLengthsThresholdsFromStrings(cl.getOptionValues("blk-vr"));
         }
     }
 
@@ -335,8 +356,7 @@ public class Xml2Dcm {
 
     public void parse(DicomInputStream dis) throws IOException {
         dis.setIncludeBulkData(includeBulkData);
-        if (blkAttrs != null)
-            dis.setBulkDataDescriptor(BulkDataDescriptor.valueOf(blkAttrs));
+        dis.setBulkDataDescriptor(bulkDataDescriptor);
         dis.setBulkDataDirectory(blkDirectory);
         dis.setBulkDataFilePrefix(blkFilePrefix);
         dis.setBulkDataFileSuffix(blkFileSuffix);
@@ -349,7 +369,7 @@ public class Xml2Dcm {
     public void mergeXML(String fname) throws Exception {
         if (dataset == null)
             dataset = new Attributes();
-        ContentHandlerAdapter ch = new ContentHandlerAdapter(dataset);
+        ContentHandlerAdapter ch = new ContentHandlerAdapter(dataset, lenient);
         parseXML(fname, ch);
         Attributes fmi2 = ch.getFileMetaInformation();
         if (fmi2 != null)

@@ -42,7 +42,7 @@
   <parent>
     <artifactId>dcm4che-parent</artifactId>
     <groupId>org.dcm4che</groupId>
-    <version>5.14.0</version>
+    <version>5.22.0</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.dcm4che.tool</groupId>
@@ -55,6 +55,8 @@
     <module>dcm4che-tool-dcm2dcm</module>
     <module>dcm4che-tool-dcm2jpg</module>
     <module>dcm4che-tool-dcm2json</module>
+    <module>dcm4che-tool-dcm2pdf</module>
+    <module>dcm4che-tool-dcm2str</module>
     <module>dcm4che-tool-dcm2xml</module>
     <module>dcm4che-tool-dcmdump</module>
     <module>dcm4che-tool-dcmdir</module>
@@ -64,6 +66,7 @@
     <module>dcm4che-tool-deidentify</module>
     <module>dcm4che-tool-emf2sf</module>
     <module>dcm4che-tool-findscu</module>
+    <module>dcm4che-tool-fixlo2un</module>
     <module>dcm4che-tool-getscu</module>
     <module>dcm4che-tool-hl72xml</module>
     <module>dcm4che-tool-hl7pix</module>
@@ -73,6 +76,7 @@
     <module>dcm4che-tool-ianscu</module>
     <module>dcm4che-tool-ihe</module>
     <module>dcm4che-tool-jpg2dcm</module>
+    <module>dcm4che-tool-json2csv</module>
     <module>dcm4che-tool-json2dcm</module>
     <module>dcm4che-tool-json2index</module>
     <module>dcm4che-tool-json2rst</module>
@@ -88,6 +92,9 @@
     <module>dcm4che-tool-swappxdata</module>
     <module>dcm4che-tool-syslog</module>
     <module>dcm4che-tool-syslogd</module>
+    <module>dcm4che-tool-upsscu</module>
+    <module>dcm4che-tool-wadors</module>
+    <module>dcm4che-tool-wadows</module>
     <module>dcm4che-tool-xml2dcm</module>
     <module>dcm4che-tool-xml2hl7</module>
   </modules>

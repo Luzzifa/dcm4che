@@ -40,11 +40,10 @@ package org.dcm4che3.data;
 
 import java.io.Serializable;
 
-import org.dcm4che3.data.Tag;
 import org.dcm4che3.util.StringUtils;
 
 /**
- * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Gunter Zeilinger (gunterze@protonmail.com)
  */
 public class Issuer implements Serializable {
 
@@ -70,9 +69,9 @@ public class Issuer implements Serializable {
         String[] ss = StringUtils.split(s, delim);
         if (ss.length > 3)
             throw new IllegalArgumentException(s);
-        this.localNamespaceEntityID = emptyToNull(ss[0]);
-        this.universalEntityID = ss.length > 1 ? emptyToNull(ss[1]) : null;
-        this.universalEntityIDType = ss.length > 2 ? emptyToNull(ss[2]) : null;
+        this.localNamespaceEntityID = unescapeHL7Separators(ss[0]);
+        this.universalEntityID = ss.length > 1 ? unescapeHL7Separators(ss[1]) : null;
+        this.universalEntityIDType = ss.length > 2 ? unescapeHL7Separators(ss[2]) : null;
         validate();
     }
 
@@ -99,19 +98,30 @@ public class Issuer implements Serializable {
     public static Issuer fromIssuerOfPatientID(Attributes attrs) {
         String issuerOfPatientID = attrs.getString(Tag.IssuerOfPatientID);
         Attributes qualifiers = attrs.getNestedDataset(Tag.IssuerOfPatientIDQualifiersSequence);
-        if (issuerOfPatientID == null && (qualifiers == null
-                || !qualifiers.containsValue(Tag.UniversalEntityID)
-                || !qualifiers.containsValue(Tag.UniversalEntityIDType)))
-            return null;
-
-        return new Issuer(issuerOfPatientID, qualifiers);
+        if (qualifiers != null) {
+            String universalEntityID = qualifiers.getString(Tag.UniversalEntityID);
+            String universalEntityIDType = qualifiers.getString(Tag.UniversalEntityIDType);
+            if (universalEntityID != null && universalEntityIDType != null)
+                return new Issuer(issuerOfPatientID, universalEntityID, universalEntityIDType);
+        }
+        return (issuerOfPatientID != null)
+                ? new Issuer(issuerOfPatientID, null, null)
+                : null;
     }
 
     public static Issuer valueOf(Attributes issuerItem) {
-        if (issuerItem == null || issuerItem.isEmpty())
+        if (issuerItem == null)
             return null;
 
-        return new Issuer(issuerItem);
+        String localNamespaceEntityID = issuerItem.getString(Tag.LocalNamespaceEntityID);
+        String universalEntityID = issuerItem.getString(Tag.UniversalEntityID);
+        String universalEntityIDType = issuerItem.getString(Tag.UniversalEntityIDType);
+
+        return (universalEntityID != null && universalEntityIDType != null)
+                ? new Issuer(localNamespaceEntityID, universalEntityID, universalEntityIDType)
+                : localNamespaceEntityID != null
+                ? new Issuer(localNamespaceEntityID, null, null)
+                : null;
     }
 
     private void validate() {
@@ -124,8 +134,8 @@ public class Issuer implements Serializable {
         }
     }
 
-    private String emptyToNull(String s) {
-        return s.isEmpty() ? null : s;
+    private static String unescapeHL7Separators(String s) {
+        return s.isEmpty() ? null : HL7Separator.unescapeAll(s);
     }
 
     public final String getLocalNamespaceEntityID() {
@@ -210,14 +220,14 @@ public class Issuer implements Serializable {
 
     public String toString(char delim) {
         if (universalEntityID == null)
-            return localNamespaceEntityID;
+            return HL7Separator.escapeAll(localNamespaceEntityID);
         StringBuilder sb = new StringBuilder();
         if (localNamespaceEntityID != null)
-            sb.append(localNamespaceEntityID);
+            sb.append(HL7Separator.escapeAll(localNamespaceEntityID));
         sb.append(delim);
-        sb.append(universalEntityID);
+        sb.append(HL7Separator.escapeAll(universalEntityID));
         sb.append(delim);
-        sb.append(universalEntityIDType);
+        sb.append(HL7Separator.escapeAll(universalEntityIDType));
         return sb.toString();
     }
 
@@ -254,4 +264,8 @@ public class Issuer implements Serializable {
         return attrs;
     }
 
+    public boolean isLesserQualifiedThan(Issuer other) {
+        return other.universalEntityID != null && (universalEntityID == null
+                || other.localNamespaceEntityID != null && localNamespaceEntityID == null);
+    }
 }

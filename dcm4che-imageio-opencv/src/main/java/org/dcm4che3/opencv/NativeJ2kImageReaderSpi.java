@@ -77,10 +77,13 @@ public class NativeJ2kImageReaderSpi extends ImageReaderSpi {
 
     @Override
     public boolean canDecodeInput(Object source) throws IOException {
-        if (!(source instanceof ImageInputStream)) {
+        // NativeImageReader.read() eventually instantiates a StreamSegment,
+        // which does not support all ImageInputStreams
+        if (!StreamSegment.supportsInputStream(source)) {
             return false;
         }
         ImageInputStream iis = (ImageInputStream) source;
+
         iis.mark();
         try {
             int marker = (iis.read() << 8) | iis.read();
@@ -106,11 +109,7 @@ public class NativeJ2kImageReaderSpi extends ImageReaderSpi {
             }
 
             // The signature content is 0x0D0A870A
-            if ((b[8] & 0xFF) != 0x0D || (b[9] & 0xFF) != 0x0A || (b[10] & 0xFF) != 0x87 || (b[11] & 0xFF) != 0x0A) {
-                return false;
-            }
-
-            return true;
+            return (b[8] & 0xFF) != 0x0D || (b[9] & 0xFF) != 0x0A || (b[10] & 0xFF) != 0x87 || (b[11] & 0xFF) != 0x0A;
         } finally {
             iis.reset();
         }

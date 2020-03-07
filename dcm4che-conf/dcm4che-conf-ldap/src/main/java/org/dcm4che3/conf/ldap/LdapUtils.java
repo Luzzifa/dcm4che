@@ -38,10 +38,8 @@
 package org.dcm4che3.conf.ldap;
 
 import java.lang.reflect.Array;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.TimeZone;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
@@ -55,9 +53,12 @@ import javax.naming.directory.ModificationItem;
 
 import org.dcm4che3.conf.api.ConfigurationChanges;
 import org.dcm4che3.data.Code;
+import org.dcm4che3.data.DatePrecision;
+import org.dcm4che3.data.Issuer;
 import org.dcm4che3.net.Connection;
 import org.dcm4che3.net.Device;
 import org.dcm4che3.util.ByteUtils;
+import org.dcm4che3.util.DateUtils;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -123,9 +124,26 @@ public class LdapUtils {
         }
     }
 
+    public static <T> void storeNotEmpty(ConfigurationChanges.ModifiedObject ldapObj, Attributes attrs, String attrID,
+            Map<String, T> map) {
+        storeNotEmpty(ldapObj, attrs, attrID, toStrings(map));
+    }
+
+    public static <T> String[] toStrings(Map<String, T> map) {
+        String[] ss = new String[map.size()];
+        int i = 0;
+        for (Map.Entry<String, T> entry : map.entrySet())
+            ss[i++] = entry.getKey() + '=' + entry.getValue();
+        return ss;
+    }
+
     public static <T> void storeNotEmpty(Attributes attrs, String attrID, T[] vals, T... defVals) {
         if (vals.length > 0 && !LdapUtils.equals(vals, defVals))
             attrs.put(LdapUtils.attr(attrID, vals));
+    }
+
+    public static <T> Attribute attr(String attrID, Map<String, T> map) {
+        return attr(attrID, toStrings(map));
     }
 
     public static <T> Attribute attr(String attrID, T... vals) {
@@ -173,17 +191,6 @@ public class LdapUtils {
     public static <T> void storeNotNullOrDef(Attributes attrs, String attrID, T val, T defVal) {
         if (val != null && !val.equals(defVal))
             attrs.put(attrID, LdapUtils.toString(val));
-    }
-
-    public static void storeNotNullOrDef(ConfigurationChanges.ModifiedObject ldapObj, Attributes attrs, String attrID, TimeZone val, TimeZone defVal) {
-        if (val != null && !val.equals(defVal)) {
-            attrs.put(attrID, val.getID());
-            if (ldapObj != null) {
-                ConfigurationChanges.ModifiedAttribute attribute = new ConfigurationChanges.ModifiedAttribute(attrID);
-                attribute.addValue(val);
-                ldapObj.add(attribute);
-            }
-        }
     }
 
     public static void storeNotNull(ConfigurationChanges.ModifiedObject ldapObj, Attributes attrs, String attrID, Integer val) {
@@ -315,14 +322,51 @@ public class LdapUtils {
                 mods.add(new ModificationItem(DirContext.REMOVE_ATTRIBUTE,
                         new BasicAttribute(attrId)));
                 if (ldapObj != null)
-                    ldapObj.add(new ConfigurationChanges.ModifiedAttribute(attrId, prev, val));
+                    ldapObj.add(new ConfigurationChanges.ModifiedAttribute(attrId,
+                            LdapUtils.toString(prev), LdapUtils.toString(val)));
             }
         } else if (!val.equals(prev)) {
             mods.add(new ModificationItem(DirContext.REPLACE_ATTRIBUTE,
                     new BasicAttribute(attrId, LdapUtils.toString(val))));
             if (ldapObj != null)
-                ldapObj.add(new ConfigurationChanges.ModifiedAttribute(attrId, prev, val));
+                ldapObj.add(new ConfigurationChanges.ModifiedAttribute(attrId,
+                        LdapUtils.toString(prev), LdapUtils.toString(val)));
         }
+    }
+
+    public static <T> void storeDiffProperties(ConfigurationChanges.ModifiedObject ldapObj, List<ModificationItem> mods,
+            String attrID, Map<String, T> prevs, Map<String, T> props) {
+        if (!equalsProperties(prevs, props)) {
+            mods.add(props.size() == 0
+                    ? new ModificationItem(DirContext.REMOVE_ATTRIBUTE, new BasicAttribute(attrID))
+                    : new ModificationItem(DirContext.REPLACE_ATTRIBUTE, LdapUtils.attr(attrID, props)));
+            if (ldapObj != null) {
+                ConfigurationChanges.ModifiedAttribute attribute = new ConfigurationChanges.ModifiedAttribute(attrID);
+                for (String val : LdapUtils.toStrings(props))
+                    attribute.addValue(val);
+                for (String prev : LdapUtils.toStrings(prevs))
+                    attribute.removeValue(prev);
+                ldapObj.add(attribute);
+            }
+        }
+    }
+
+    private static <T> boolean equalsProperties(Map<String, T> prevs, Map<String, T> props) {
+        if (prevs == props)
+            return true;
+
+        if (prevs.size() != props.size())
+            return false;
+
+        for (Map.Entry<String, T> prop : props.entrySet()) {
+            Object value = prop.getValue();
+            Object prevValue = prevs.get(prop.getKey());
+            if (!(value == null
+                    ? prevValue == null && prevs.containsKey(prop.getKey())
+                    : prevValue != null && prevValue.toString().equals(value.toString())))
+                return false;
+        }
+        return true;
     }
 
     public static <T> void storeDiff(ConfigurationChanges.ModifiedObject ldapObj, List<ModificationItem> mods,
@@ -425,11 +469,19 @@ public class LdapUtils {
     }
 
     public static String stringValue(Attribute attr, String defVal) throws NamingException {
-        return attr != null ? (String) attr.get() : defVal;
+        return attr != null ? stringValue(attr.get()) : defVal;
+    }
+
+    private static String stringValue(Object o) {
+        return o instanceof byte[] ? new String((byte[]) o, StandardCharsets.UTF_8) : (String) o;
     }
 
     public static TimeZone timeZoneValue(Attribute attr, TimeZone defVal) throws NamingException {
         return attr != null ? TimeZone.getTimeZone((String) attr.get()) : defVal;
+    }
+
+    public static Date dateTimeValue(Attribute attr) throws NamingException {
+        return attr != null ? DateUtils.parseDT(null, (String) attr.get(), new DatePrecision()) : null;
     }
 
     public static <T extends Enum<T>> T enumValue(Class<T> enumType, Attribute attr, T defVal) throws NamingException {
@@ -465,6 +517,10 @@ public class LdapUtils {
 
     public static Code codeValue(Attribute attr) throws NamingException {
         return attr != null ? new Code((String) attr.get()) : null;
+    }
+
+    public static Issuer issuerValue(Attribute attr) throws NamingException {
+        return attr != null ? new Issuer((String) attr.get()) : null;
     }
 
     public static int[] intArray(Attribute attr) throws NamingException {
@@ -504,8 +560,9 @@ public class LdapUtils {
     }
 
     public static String toString(Object o) {
-        return (o instanceof Boolean)
-                ? toString(((Boolean) o).booleanValue())
+        return (o instanceof Boolean) ? toString(((Boolean) o).booleanValue())
+                : (o instanceof TimeZone) ? ((TimeZone) o).getID()
+                : (o instanceof Date) ? DateUtils.formatDT(null, (Date) o)
                 : o != null ? o.toString() : null;
     }
 

@@ -52,16 +52,16 @@ set CP=%CP%;%DCM4CHE_HOME%\lib\dcm4che-tool-common-${project.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\weasis-opencv-core-${weasis.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\jai_imageio-1.2-pre-dr-b04.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\clibwrapper_jiio-1.2-pre-dr-b04.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-api-1.7.25.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-log4j12-1.7.25.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\log4j-1.2.17.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-api-${slf4j.version}.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-log4j12-${slf4j.version}.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\log4j-${log4j.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\commons-cli-${commons-cli.version}.jar
 
 rem Setup the native library path
-"%JAVA%" -d64 -version >nul 2>&1 && set OS=win-x86_64 || set OS=win-i686
+"%JAVA%" -version 2>&1 | findstr 64-Bit >nul && set "OS=win-x86_64" || set "OS=win-i686"
 set JAVA_LIBRARY_PATH=%DCM4CHE_HOME%\lib\%OS%
 
-set JAVA_OPTS=%JAVA_OPTS% -Djava.library.path=%JAVA_LIBRARY_PATH%
+set JAVA_OPTS=%JAVA_OPTS% -Djava.library.path="%JAVA_LIBRARY_PATH%"
 
 if not "%IMAGE_READER_FACTORY%" == "" ^
  set JAVA_OPTS=%JAVA_OPTS% -Dorg.dcm4che3.imageio.codec.ImageReaderFactory=%IMAGE_READER_FACTORY%

@@ -77,10 +77,13 @@ public class NativeJLSImageReaderSpi extends ImageReaderSpi {
 
     @Override
     public boolean canDecodeInput(Object source) throws IOException {
-        if (!(source instanceof ImageInputStream)) {
+        // NativeImageReader.read() eventually instantiates a StreamSegment,
+        // which does not support all ImageInputStreams
+        if (!StreamSegment.supportsInputStream(source)) {
             return false;
         }
         ImageInputStream iis = (ImageInputStream) source;
+
         iis.mark();
         int byte1 = iis.read();
         int byte2 = iis.read();
@@ -89,10 +92,7 @@ public class NativeJLSImageReaderSpi extends ImageReaderSpi {
         iis.reset();
         // Magic numbers for JPEG (general jpeg marker): 0xFFD8
         // Start of Frame, also known as SOF55, indicates a JPEG-LS file
-        if ((byte1 == 0xFF) && (byte2 == 0xD8) && (byte3 == 0xFF) && (byte4 == 0xF7)) {
-            return true;
-        }
-        return false;
+        return (byte1 == 0xFF) && (byte2 == 0xD8) && (byte3 == 0xFF) && (byte4 == 0xF7);
     }
 
     @Override

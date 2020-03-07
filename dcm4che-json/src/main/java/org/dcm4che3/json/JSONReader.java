@@ -42,6 +42,8 @@ import org.dcm4che3.data.*;
 import org.dcm4che3.data.PersonName.Group;
 import org.dcm4che3.util.Base64;
 import org.dcm4che3.util.TagUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.json.stream.JsonParser;
 import javax.json.stream.JsonParser.Event;
@@ -58,6 +60,8 @@ import java.util.List;
  */
 public class JSONReader {
 
+    private static final Logger LOG = LoggerFactory.getLogger(JSONReader.class);
+
     public interface Callback {
 
         void onDataset(Attributes fmi, Attributes dataset);
@@ -69,6 +73,7 @@ public class JSONReader {
     private Attributes fmi;
     private Event event;
     private String s;
+    private int level = -1;
     private final ByteArrayOutputStream bout = new ByteArrayOutputStream(64);
     private final EnumMap<Group, String> pnGroups = new EnumMap<>(PersonName.Group.class);
 
@@ -139,18 +144,20 @@ public class JSONReader {
     }
 
     private Attributes doReadDataset(Attributes attrs) {
+        level++;
         while (event == JsonParser.Event.KEY_NAME) {
             readAttribute(attrs);
             next();
         }
         expect(JsonParser.Event.END_OBJECT);
         attrs.trimToSize();
+        level--;
         return attrs;
     }
 
     private void readAttribute(Attributes attrs) {
         int tag = (int) Long.parseLong(getString(), 16);
-        if (TagUtils.isFileMetaInformation(tag)) {
+        if (level == 0 && TagUtils.isFileMetaInformation(tag)) {
             if (fmi == null)
                 fmi = new Attributes();
             attrs = fmi;
@@ -191,16 +198,21 @@ public class JSONReader {
 
         if (el.isEmpty())
             attrs.setNull(tag, el.vr);
-        else switch (el.vr) {
+        else if (el.bulkDataURI != null) {
+            if (!skipBulkDataURI)
+                attrs.setValue(tag, el.vr, new BulkData(null, el.bulkDataURI, false));
+        } else switch (el.vr) {
             case AE:
             case AS:
             case AT:
             case CS:
             case DA:
+            case DS:
             case DT:
             case LO:
             case LT:
             case PN:
+            case IS:
             case SH:
             case ST:
             case TM:
@@ -210,12 +222,10 @@ public class JSONReader {
             case UT:
                 attrs.setString(tag, el.vr, el.toStrings());
                 break;
-            case DS:
             case FL:
             case FD:
                 attrs.setDouble(tag, el.vr, el.toDoubles());
                 break;
-            case IS:
             case SL:
             case SS:
             case UL:
@@ -233,10 +243,7 @@ public class JSONReader {
             case UN:
                 if (el.bytes != null)
                     attrs.setBytes(tag, el.vr, el.bytes);
-                else if (el.bulkDataURI != null) {
-                    if (!skipBulkDataURI)
-                        attrs.setValue(tag, el.vr, new BulkData(null, el.bulkDataURI, false));
-                } else
+                else
                     el.toFragments(attrs.newFragments(tag, el.vr, el.values.size()));
         }
     }
@@ -341,10 +348,9 @@ public class JSONReader {
     }
 
     private Object readDataFragment() {
-        next();
         byte[] bytes = null;
         String bulkDataURI = null;
-        while (next() != Event.KEY_NAME) {
+        while (next() == Event.KEY_NAME) {
             switch (getString()) {
                 case "BulkDataURI":
                     bulkDataURI = valueString();
@@ -386,7 +392,22 @@ public class JSONReader {
         double[] toDoubles() {
             double[] ds = new double[values.size()];
             for (int i = 0; i < ds.length; i++) {
-                ds[i] = ((Number) values.get(i)).doubleValue();
+                Number number = (Number) values.get(i);
+                double d;
+                if (number == null) {
+                    LOG.info("decode {} null as NaN", vr);
+                    d = Double.NaN;
+                } else {
+                    d = number.doubleValue();
+                    if (d == -Double.MAX_VALUE) {
+                        LOG.info("decode {} {} as -Infinity", vr, d);
+                        d = Double.NEGATIVE_INFINITY;
+                    } else if (d == Double.MAX_VALUE) {
+                        LOG.info("decode {} {} as Infinity", vr, d);
+                        d = Double.POSITIVE_INFINITY;
+                    }
+                }
+                ds[i] = d;
             }
             return ds;
         }

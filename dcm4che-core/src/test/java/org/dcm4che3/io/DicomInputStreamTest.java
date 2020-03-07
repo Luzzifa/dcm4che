@@ -1,12 +1,13 @@
 package org.dcm4che3.io;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
-import java.io.File;
+import java.io.*;
+import java.util.Collections;
+import java.util.List;
 
-import org.dcm4che3.data.Tag;
-import org.dcm4che3.data.Attributes;
-import org.dcm4che3.data.Sequence;
+import org.dcm4che3.data.*;
 import org.dcm4che3.io.DicomInputStream.IncludeBulkData;
 import org.junit.Test;
 
@@ -41,6 +42,34 @@ public class DicomInputStreamTest {
         assertEquals(1, attrs.getInt(Tag.SamplesPerPixel, 0));
     }
 
+    @Test
+    public void testSpoolDataFragments() throws Exception {
+        List<File> bulkDataFiles;
+        Object pixeldata;
+        try (DicomInputStream in = new DicomInputStream(new File("target/test-data/US-PAL-8-10x-echo"))) {
+            in.setIncludeBulkData(IncludeBulkData.URI);
+            in.setURI(null); // force spooling
+            in.setConcatenateBulkDataFiles(false);
+            pixeldata = in.readDataset(-1, -1).getValue(Tag.PixelData);
+            bulkDataFiles = in.getBulkDataFiles();
+        }
+        try {
+            assertTrue(pixeldata instanceof Fragments);
+            Fragments fragments = (Fragments) pixeldata;
+            assertEquals(11, fragments.size());
+            assertEquals(11, bulkDataFiles.size());
+            for (int i = 0; i < 10; i++) {
+                Object fragment = fragments.get(++i);
+                assertTrue(fragment instanceof BulkData);
+                assertEquals(bulkDataFiles.get(i), ((BulkData)fragment).getFile());
+            }
+        } finally {
+            for (File bulkDataFile : bulkDataFiles) {
+                bulkDataFile.delete();
+            }
+        }
+    }
+
     private static Attributes readFrom(String name, IncludeBulkData includeBulkData) throws Exception {
         try ( DicomInputStream in = new DicomInputStream(new File("target/test-data/" + name))) {
             in.setIncludeBulkData(includeBulkData);
@@ -48,4 +77,11 @@ public class DicomInputStreamTest {
         }
     }
 
+    @Test(expected = EOFException.class)
+    public void testNoOutOfMemoryErrorOnInvalidLength() throws IOException {
+        byte[] b = { 8, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 'e', 'v', 'i', 'l', 'l', 'e', 'n', 'g', 'h' };
+        try ( DicomInputStream in = new DicomInputStream(new ByteArrayInputStream(b))) {
+            in.readDataset(-1, -1);
+        }
+    }
 }

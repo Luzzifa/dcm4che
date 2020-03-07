@@ -97,6 +97,7 @@ public class Compressor extends Decompressor implements Closeable {
     private int[] embeddedOverlays;
     private int maxPixelValueError = -1;
     private int avgPixelValueBlockSize = 1;
+    private int bitsCompressed;
     private BufferedImage bi2;
 
     private ImageReadParam verifyParam;
@@ -110,7 +111,7 @@ public class Compressor extends Decompressor implements Closeable {
 
         if (pixeldata instanceof BulkData) {
             this.pixeldata = (BulkData) pixeldata;
-            if (pmi.isSubSambled())
+            if (pmi.isSubSampled())
                 throw new UnsupportedOperationException(
                         "Unsupported Photometric Interpretation: " + pmi);
             if (this.pixeldata.length() < length)
@@ -148,6 +149,8 @@ public class Compressor extends Decompressor implements Closeable {
                 this.maxPixelValueError = ((Number) property.getValue()).intValue();
             else if (name.equals("avgPixelValueBlockSize"))
                 this.avgPixelValueBlockSize = ((Number) property.getValue()).intValue();
+            else if (name.equals("bitsCompressed"))
+                this.bitsCompressed = ((Number) property.getValue()).intValue();
             else {
                 if (count++ == 0)
                     compressParam.setCompressionMode(
@@ -185,8 +188,7 @@ public class Compressor extends Decompressor implements Closeable {
         }
         if (samples > 1) {
             dataset.setString(Tag.PhotometricInterpretation, VR.CS, 
-                    (decompressor != null ? pmi.decompress() : pmi)
-                            .compress(tsuid).toString());
+                    pmiAfterDecompression.compress(tsuid).toString());
             dataset.setInt(Tag.PlanarConfiguration, VR.US, 
                     tstype.getPlanarConfiguration());
         }

@@ -45,8 +45,6 @@ import org.dcm4che3.data.Tag;
 import org.dcm4che3.image.Overlays;
 import org.dcm4che3.image.PhotometricInterpretation;
 
-import java.awt.image.DataBuffer;
-
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @since Jul 2015
@@ -59,6 +57,7 @@ public final class ImageDescriptor {
     private final PhotometricInterpretation photometricInterpretation;
     private final int bitsAllocated;
     private final int bitsStored;
+    private final int bitsCompressed;
     private final int pixelRepresentation;
     private final String sopClassUID;
     private final String bodyPartExamined;
@@ -67,6 +66,10 @@ public final class ImageDescriptor {
     private final int planarConfiguration;
 
     public ImageDescriptor(Attributes attrs) {
+        this(attrs, 0);
+    }
+
+    public ImageDescriptor(Attributes attrs, int bitsCompressed) {
         this.rows = attrs.getInt(Tag.Rows, 0);
         this.columns = attrs.getInt(Tag.Columns, 0);
         this.samples = attrs.getInt(Tag.SamplesPerPixel, 0);
@@ -80,6 +83,8 @@ public final class ImageDescriptor {
         this.bodyPartExamined = attrs.getString(Tag.BodyPartExamined);
         this.frames = attrs.getInt(Tag.NumberOfFrames, 1);
         this.embeddedOverlays = Overlays.getEmbeddedOverlayGroupOffsets(attrs);
+        this.bitsCompressed =  Math.min(bitsAllocated, Math.max(bitsStored,
+                (bitsCompressed < 0 && isSigned()) ? -bitsCompressed : bitsCompressed));
     }
 
     public int getRows() {
@@ -104,6 +109,10 @@ public final class ImageDescriptor {
 
     public int getBitsStored() {
         return bitsStored;
+    }
+
+    public int getBitsCompressed() {
+        return bitsCompressed;
     }
 
     public int getPixelRepresentation() {
@@ -131,7 +140,7 @@ public final class ImageDescriptor {
     }
 
     public int getFrameLength() {
-        return rows * columns * samples * (bitsAllocated>>>3);
+        return rows * columns * samples * bitsAllocated / 8;
     }
 
     public int getLength() {

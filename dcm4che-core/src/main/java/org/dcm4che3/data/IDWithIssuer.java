@@ -40,9 +40,9 @@ package org.dcm4che3.data;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
 
-import org.dcm4che3.data.Tag;
 import org.dcm4che3.util.StringUtils;
 
 /**
@@ -53,6 +53,7 @@ public class IDWithIssuer {
     public static final IDWithIssuer[] EMPTY = {};
 
     private final String id;
+    private String typeOfPatientID;
     private String identifierTypeCode;
     private Issuer issuer;
 
@@ -70,14 +71,29 @@ public class IDWithIssuer {
 
     public IDWithIssuer(String cx) {
         String[] ss = StringUtils.split(cx, '^');
-        this.id = ss[0];
-        this.setIdentifierTypeCode(ss.length > 4 ? ss[4] : null);
-        this.setIssuer(ss.length > 3 ? new Issuer(ss[3], '&') : null);
-        
+        this.id = HL7Separator.unescapeAll(ss[0]);
+        if (ss.length > 3) {
+            if (!ss[3].isEmpty())
+                this.setIssuer(new Issuer(ss[3], '&'));
+            if (ss.length > 4 && !ss[4].isEmpty())
+                this.setIdentifierTypeCode(HL7Separator.unescapeAll(ss[4]));
+        }
+    }
+
+    public IDWithIssuer withoutIssuer() {
+        return issuer == null ? this : new IDWithIssuer(id, (Issuer) null);
     }
 
     public final String getID() {
         return id;
+    }
+
+    public String getTypeOfPatientID() {
+        return typeOfPatientID;
+    }
+
+    public void setTypeOfPatientID(String typeOfPatientID) {
+        this.typeOfPatientID = typeOfPatientID;
     }
 
     public final String getIdentifierTypeCode() {
@@ -99,20 +115,22 @@ public class IDWithIssuer {
     @Override
     public String toString() {
         if (issuer == null && identifierTypeCode == null)
-            return id;
+            return HL7Separator.escapeAll(id);
         
-        StringBuilder sb = new StringBuilder(id);
+        StringBuilder sb = new StringBuilder(HL7Separator.escapeAll(id));
         sb.append("^^^");
         if (issuer != null)
             sb.append(issuer.toString('&'));
         if (identifierTypeCode != null)
-            sb.append('^').append(identifierTypeCode);
+            sb.append('^').append(HL7Separator.escapeAll(identifierTypeCode));
         return sb.toString();
     }
 
     @Override
     public int hashCode() {
         int result = id.hashCode();
+        if (typeOfPatientID != null)
+            result += typeOfPatientID.hashCode() * 31;
         if (identifierTypeCode != null)
             result += identifierTypeCode.hashCode() * 31;
         if (issuer != null)
@@ -128,10 +146,13 @@ public class IDWithIssuer {
             return false;
         IDWithIssuer other = (IDWithIssuer) obj;
         return id.equals(other.id) &&
+                (typeOfPatientID == null
+                    ? other.typeOfPatientID == null
+                    : typeOfPatientID.equals(typeOfPatientID)) &&
                 (identifierTypeCode == null
                     ? other.identifierTypeCode == null
                     : identifierTypeCode.equals(identifierTypeCode)) &&
-                (issuer == null 
+                (issuer == null
                     ? other.issuer == null
                     : issuer.equals(other.issuer));
     }
@@ -148,6 +169,9 @@ public class IDWithIssuer {
             attrs = new Attributes(3);
 
         attrs.setString(Tag.PatientID, VR.LO, id);
+        if (typeOfPatientID != null) {
+            attrs.setString(Tag.TypeOfPatientID, VR.CS, typeOfPatientID);
+        }
         if (issuer == null && identifierTypeCode == null) {
             return attrs;
         }
@@ -185,6 +209,7 @@ public class IDWithIssuer {
 
         IDWithIssuer result = 
                 new IDWithIssuer(id, Issuer.fromIssuerOfPatientID(attrs));
+        result.setTypeOfPatientID(attrs.getString(Tag.TypeOfPatientID));
         result.setIdentifierTypeCode(identifierTypeCodeOf(attrs));
         return result;
     }
@@ -209,11 +234,26 @@ public class IDWithIssuer {
                 new HashSet<IDWithIssuer>((1 + opidseq.size()) << 1);
         if (pid != null)
             pids.add(pid);
-        for (Attributes item : opidseq) {
-            pid = IDWithIssuer.pidOf(item);
-            if (pid != null)
-                pids.add(pid);
-        }
+        for (Attributes item : opidseq)
+            addTo(IDWithIssuer.pidOf(item), pids);
         return pids;
+    }
+
+    private static void addTo(IDWithIssuer pid, Set<IDWithIssuer> pids) {
+        if (pid == null)
+            return;
+
+        for (Iterator<IDWithIssuer> itr = pids.iterator(); itr.hasNext();) {
+            IDWithIssuer next = itr.next();
+            if (next.matches(pid)) {
+                // replace existing matching pid if it is lesser qualified
+                if (pid.issuer != null && (next.issuer == null
+                        || next.issuer.isLesserQualifiedThan(pid.issuer)))
+                    itr.remove();
+                else
+                    return;
+            }
+        }
+        pids.add(pid);
     }
 }

@@ -89,6 +89,7 @@ public class ApplicationEntity implements Serializable {
     private boolean acceptor = true;
     private boolean initiator = true;
     private Boolean installed;
+    private Boolean roleSelectionNegotiationLenient;
     private String hl7ApplicationName;
     private final LinkedHashSet<String> acceptedCallingAETs = new LinkedHashSet<>();
     private final LinkedHashSet<String> otherAETs = new LinkedHashSet<>();
@@ -416,6 +417,20 @@ public class ApplicationEntity implements Serializable {
         this.installed = installed;
     }
 
+    public boolean isRoleSelectionNegotiationLenient() {
+        return roleSelectionNegotiationLenient != null
+                ? roleSelectionNegotiationLenient.booleanValue()
+                : device != null && device.isRoleSelectionNegotiationLenient();
+    }
+
+    public final Boolean getRoleSelectionNegotiationLenient() {
+        return roleSelectionNegotiationLenient;
+    }
+
+    public void setRoleSelectionNegotiationLenient(Boolean installed) {
+        this.roleSelectionNegotiationLenient = roleSelectionNegotiationLenient;
+    }
+
     public String getHl7ApplicationName() {
         return hl7ApplicationName;
     }
@@ -607,16 +622,19 @@ public class ApplicationEntity implements Serializable {
         rq.setMaxOpsPerformed(local.getMaxOpsPerformed());
         rq.setMaxPDULength(local.getReceivePDULength());
         Socket sock = local.connect(remote);
+        AssociationMonitor monitor = device.getAssociationMonitor();
+        Association as = null;
         try {
-            Association as = new Association(this, local, sock);
+            as = new Association(this, local, sock);
             as.write(rq);
             as.waitForLeaving(State.Sta5);
+            if (monitor != null)
+                monitor.onAssociationEstablished(as);
             return as;
-        } catch (InterruptedException e) {
+        } catch (InterruptedException | IOException e) {
             SafeClose.close(sock);
-            throw e;
-        } catch (IOException e) {
-            SafeClose.close(sock);
+            if (as != null && monitor != null)
+                monitor.onAssociationFailed(as, e);
             throw e;
         }
     }
@@ -725,6 +743,7 @@ public class ApplicationEntity implements Serializable {
         acceptor = from.acceptor;
         initiator = from.initiator;
         installed = from.installed;
+        roleSelectionNegotiationLenient = from.roleSelectionNegotiationLenient;
     }
 
     public void addAEExtension(AEExtension ext) {

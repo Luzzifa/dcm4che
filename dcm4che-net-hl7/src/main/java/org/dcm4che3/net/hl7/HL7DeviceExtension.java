@@ -58,12 +58,15 @@ public class HL7DeviceExtension extends DeviceExtension {
     static {
         Connection.registerTCPProtocolHandler(
                 Connection.Protocol.HL7, HL7ProtocolHandler.INSTANCE);
+        Connection.registerTCPProtocolHandler(
+                Connection.Protocol.HL7_MLLP2, HL7ProtocolHandler.INSTANCE);
     }
 
     private final LinkedHashMap<String, HL7Application> hl7apps =
             new LinkedHashMap<String, HL7Application>();
 
     private transient HL7MessageListener hl7MessageListener;
+    private transient HL7ConnectionMonitor hl7ConnectionMonitor;
 
     @Override
     public void verifyNotUsed(Connection conn) {
@@ -126,7 +129,15 @@ public class HL7DeviceExtension extends DeviceExtension {
         this.hl7MessageListener = listener;
     }
 
-    byte[] onMessage(Connection conn, Socket s, UnparsedHL7Message msg) throws HL7Exception {
+    public HL7ConnectionMonitor getHL7ConnectionMonitor() {
+        return hl7ConnectionMonitor;
+    }
+
+    public void setHL7ConnectionMonitor(HL7ConnectionMonitor hl7ConnectionMonitor) {
+        this.hl7ConnectionMonitor = hl7ConnectionMonitor;
+    }
+
+    UnparsedHL7Message onMessage(Connection conn, Socket s, UnparsedHL7Message msg) throws HL7Exception {
         HL7Application hl7App = getHL7Application(msg.msh().getReceivingApplicationWithFacility(), true);
         if (hl7App == null)
             throw new HL7Exception(

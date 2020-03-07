@@ -55,9 +55,9 @@ import javax.imageio.stream.ImageInputStream;
  */
 public class NativeJPEGImageReaderSpi extends ImageReaderSpi {
 
-    static final String[] NAMES = { "jpeg-cv", "jpeg", "JPEG", "jpg", "JPG", "jfif", "JFIF", "jpeg-lossless", "JPEG-LOSSLESS" };
-    static final String[] SUFFIXES = { "jpeg", "jpg", "jfif" };
-    static final String[] MIMES = { "image/jpeg" };
+    static final String[] NAMES = { "jpeg-cv" };
+    static final String[] SUFFIXES = {};
+    static final String[] MIMES = {};
 
     public NativeJPEGImageReaderSpi() {
         super("Weasis Team", "1.0", NAMES, SUFFIXES, MIMES, NativeImageReader.class.getName(),
@@ -74,13 +74,26 @@ public class NativeJPEGImageReaderSpi extends ImageReaderSpi {
     public String getDescription(Locale locale) {
         return "Natively-accelerated JPEG Image Reader (8/12/16 bits, IJG 6b based)";
     }
+    
+    @Override
+    public String[] getFileSuffixes() {
+        return SUFFIXES;
+    }
+
+    @Override
+    public String[] getMIMETypes() {
+        return MIMES;
+    }
 
     @Override
     public boolean canDecodeInput(Object source) throws IOException {
-        if (!(source instanceof ImageInputStream)) {
+        // NativeImageReader.read() eventually instantiates a StreamSegment,
+        // which does not support all ImageInputStreams
+        if (!StreamSegment.supportsInputStream(source)) {
             return false;
         }
         ImageInputStream iis = (ImageInputStream) source;
+
         iis.mark();
         try {
             int byte1 = iis.read();

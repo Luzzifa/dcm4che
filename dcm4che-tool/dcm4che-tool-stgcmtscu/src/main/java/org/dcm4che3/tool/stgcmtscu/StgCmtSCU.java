@@ -250,9 +250,9 @@ public class StgCmtSCU {
     }
 
     public static int getSplitTag(CommandLine cl) {
-        return cl.hasOption("one-by-study") 
+        return cl.hasOption("one-per-study") 
                 ? Tag.StudyInstanceUID
-                : cl.hasOption("one-by-series")
+                : cl.hasOption("one-per-series")
                         ? Tag.SeriesInstanceUID
                         : 0;
     }
@@ -314,6 +314,7 @@ public class StgCmtSCU {
         CLIUtils.addBindOption(opts, "STGCMTSCU");
         CLIUtils.addRequestTimeoutOption(opts);
         CLIUtils.addAEOptions(opts);
+        CLIUtils.addSendTimeoutOption(opts);
         CLIUtils.addResponseTimeoutOption(opts);
         CLIUtils.addCommonOptions(opts);
         addStgCmtOptions(opts);

@@ -58,7 +58,7 @@ import javax.naming.directory.SearchResult;
 import org.dcm4che3.conf.api.ConfigurationChanges;
 import org.dcm4che3.conf.api.*;
 import org.dcm4che3.conf.api.ConfigurationException;
-import org.dcm4che3.data.Issuer;
+import org.dcm4che3.io.BasicBulkDataDescriptor;
 import org.dcm4che3.net.*;
 import org.dcm4che3.net.Connection.Protocol;
 import org.dcm4che3.util.StringUtils;
@@ -74,6 +74,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     private static final Logger LOG = LoggerFactory.getLogger(LdapDicomConfiguration.class);
 
     private static final String CN_UNIQUE_AE_TITLES_REGISTRY = "cn=Unique AE Titles Registry,";
+    private static final String CN_UNIQUE_WEB_APP_NAMES_REGISTRY = "cn=Unique Web Application Names Registry,";
     private static final String CN_DEVICES = "cn=Devices,";
     private static final String DICOM_CONFIGURATION = "DICOM Configuration";
     private static final String DICOM_CONFIGURATION_ROOT = "dicomConfigurationRoot";
@@ -86,7 +87,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     private String configurationDN;
     private String devicesDN;
     private String aetsRegistryDN;
-    private String configurationCN = DICOM_CONFIGURATION; 
+    private String webAppsRegistryDN;
+    private String configurationCN = DICOM_CONFIGURATION;
     private String configurationRoot = DICOM_CONFIGURATION_ROOT;
     private String pkiUser = PKI_USER;
     private String userCertificate = USER_CERTIFICATE_BINARY;
@@ -119,9 +121,11 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             "dcmWebAppName",
             "dcmWebServicePath",
             "dcmWebServiceClass",
+            "dcmKeycloakClientID",
             "dicomAETitle",
             "dicomDescription",
             "dicomApplicationCluster",
+            "dcmProperty",
             "dicomInstalled",
             "dicomNetworkConnectionReference"
     };
@@ -260,6 +264,17 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         }
     }
 
+    @Override
+    public synchronized boolean registerWebAppName(String webAppName) throws ConfigurationException {
+        ensureConfigurationExists();
+        try {
+            registerWebApp(webAppName);
+            return true;
+        } catch (WebAppAlreadyExistsException e) {
+            return false;
+        }
+    }
+
     private String registerAET(String aet) throws ConfigurationException {
         try {
             String dn = aetDN(aet, aetsRegistryDN);
@@ -269,7 +284,19 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             throw new AETitleAlreadyExistsException("AE Title '" + aet + "' already exists");
         } catch (NamingException e) {
             throw new ConfigurationException(e);
-       }
+        }
+    }
+
+    private String registerWebApp(String webAppName) throws ConfigurationException {
+        try {
+            String dn = webAppDN(webAppName, webAppsRegistryDN);
+            createSubcontext(dn, LdapUtils.attrs("dcmUniqueWebAppName", "dcmWebAppName", webAppName));
+            return dn;
+        } catch (NameAlreadyBoundException e) {
+            throw new WebAppAlreadyExistsException("Web Application '" + webAppName + "' already exists");
+        } catch (NamingException e) {
+            throw new ConfigurationException(e);
+        }
     }
 
     @Override
@@ -284,11 +311,28 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     }
 
     @Override
+    public synchronized void unregisterWebAppName(String webAppName) throws ConfigurationException {
+        if (configurationExists())
+            try {
+                ctx.destroySubcontext(webAppDN(webAppName, webAppsRegistryDN));
+            } catch (NameNotFoundException e) {
+            } catch (NamingException e) {
+                throw new ConfigurationException(e);
+            }
+    }
+
+    @Override
     public synchronized ApplicationEntity findApplicationEntity(String aet)
             throws ConfigurationException {
         return findDevice(
                 "(&(objectclass=dicomNetworkAE)(dicomAETitle=" + aet + "))", aet)
             .getApplicationEntity(aet);
+    }
+
+    @Override
+    public synchronized WebApplication findWebApplication(String name) throws ConfigurationException {
+        return findDevice("(&(objectclass=dcmWebApp)(dcmWebAppName=" + name + "))", name)
+            .getWebApplication(name);
     }
 
     public synchronized Device findDevice(String filter, String childName)
@@ -314,11 +358,19 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         return loadDevice(deviceDN);
     }
 
-    public Connection findConnection(String connDN) throws NamingException {
-        String[] attrIds = { "dicomHostname", "dicomPort", "dicomTLSCipherSuite", "dicomInstalled" };
-        Attributes attrs = ctx.getAttributes(connDN, attrIds);
-        Connection conn = new Connection();
-        loadFrom(conn, attrs, false);
+    public Connection findConnection(String connDN, Map<String, Connection> cache)
+            throws NamingException, ConfigurationException {
+        Connection conn = cache.get(connDN);
+        if (conn == null) {
+            try {
+                String[] attrIds = {"dicomHostname", "dicomPort", "dicomTLSCipherSuite", "dicomInstalled"};
+                Attributes attrs = ctx.getAttributes(connDN, attrIds);
+                cache.put(connDN, conn = new Connection());
+                loadFrom(conn, attrs, false);
+            } catch (NameNotFoundException e) {
+                throw new ConfigurationException(e);
+            }
+        }
         return conn;
     }
 
@@ -439,8 +491,9 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         deviceInfo.setArcDevExt(LdapUtils.hasObjectClass(attrs, "dcmArchiveDevice"));
     }
 
-    private void loadFrom(ApplicationEntityInfo aetInfo, Attributes attrs, String deviceName)
-            throws NamingException {
+    private void loadFrom(ApplicationEntityInfo aetInfo, Attributes attrs, String deviceName,
+            Map<String, Connection> connCache)
+            throws NamingException, ConfigurationException {
         aetInfo.setDeviceName(deviceName);
         aetInfo.setAETitle(
                 LdapUtils.stringValue(attrs.get("dicomAETitle"), null));
@@ -459,11 +512,12 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         aetInfo.setHl7ApplicationName(
                 LdapUtils.stringValue(attrs.get("hl7ApplicationName"), null));
         for (String connDN : LdapUtils.stringArray(attrs.get("dicomNetworkConnectionReference")))
-            aetInfo.getConnections().add(findConnection(connDN));
+            aetInfo.getConnections().add(findConnection(connDN, connCache));
     }
 
-    private void loadFrom(WebApplicationInfo webappInfo, Attributes attrs, String deviceName)
-            throws NamingException {
+    private void loadFrom(WebApplicationInfo webappInfo, Attributes attrs, String deviceName,
+            Map<String, Connection> connCache, Map<String, KeycloakClient> keycloakClientCache)
+            throws NamingException, ConfigurationException {
         webappInfo.setDeviceName(deviceName);
         webappInfo.setApplicationName(LdapUtils.stringValue(attrs.get("dcmWebAppName"), null));
         webappInfo.setDescription(LdapUtils.stringValue(attrs.get("dicomDescription"), null));
@@ -471,9 +525,30 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         webappInfo.setServiceClasses(LdapUtils.enumArray(WebApplication.ServiceClass.class, attrs.get("dcmWebServiceClass")));
         webappInfo.setAETitle(LdapUtils.stringValue(attrs.get("dicomAETitle"), null));
         webappInfo.setApplicationClusters(LdapUtils.stringArray(attrs.get("dicomApplicationCluster")));
+        webappInfo.setProperties(LdapUtils.stringArray(attrs.get("dcmProperty")));
+        String keycloakClientID = LdapUtils.stringValue(attrs.get("dcmKeycloakClientID"), null);
+        webappInfo.setKeycloakClientID(keycloakClientID);
         webappInfo.setInstalled(LdapUtils.booleanValue(attrs.get("dicomInstalled"), null));
         for (String connDN : LdapUtils.stringArray(attrs.get("dicomNetworkConnectionReference")))
-            webappInfo.getConnections().add(findConnection(connDN));
+            webappInfo.getConnections().add(findConnection(connDN, connCache));
+        if (keycloakClientID != null)
+            webappInfo.setKeycloakClient(findKeycloakClient(keycloakClientID, deviceName, keycloakClientCache));
+    }
+
+    private KeycloakClient findKeycloakClient(String clientID, String deviceName, Map<String, KeycloakClient> cache)
+            throws NamingException, ConfigurationException {
+        String keycloakClientDN = keycloakClientDN(clientID, deviceRef(deviceName));
+        KeycloakClient keycloakClient = cache.get(keycloakClientDN);
+        if (keycloakClient == null) {
+            try {
+                Attributes attrs = ctx.getAttributes(keycloakClientDN);
+                cache.put(keycloakClientDN, keycloakClient = new KeycloakClient(clientID));
+                loadFrom(keycloakClient, attrs);
+            } catch (NameNotFoundException e) {
+                throw new ConfigurationException(e);
+            }
+        }
+        return keycloakClient;
     }
 
     @Override
@@ -490,6 +565,14 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             return StringUtils.EMPTY_STRING;
 
         return list(aetsRegistryDN, "(objectclass=dicomUniqueAETitle)", "dicomAETitle");
+    }
+
+    @Override
+    public synchronized String[] listRegisteredWebAppNames() throws ConfigurationException {
+        if (!configurationExists())
+            return StringUtils.EMPTY_STRING;
+
+        return list(webAppsRegistryDN, "(objectclass=dcmUniqueWebAppName)", "dcmWebAppName");
     }
 
     public synchronized String[] list(String dn, String filter, String attrID)
@@ -574,10 +657,12 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     }
 
     private void register(Device device, List<String> dns) throws ConfigurationException {
-        for (String aet : device.getApplicationAETitles()) {
+        for (String aet : device.getApplicationAETitles())
             if (!aet.equals("*"))
                 dns.add(registerAET(aet));
-        }
+        for (String webAppName : device.getWebApplicationNames())
+            if (!webAppName.equals("*"))
+                dns.add(registerWebApp(webAppName));
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.register(device, dns);
     }
@@ -612,6 +697,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (extended) {
             for (WebApplication webapp : device.getWebApplications())
                 store(diffs, webapp, deviceDN);
+            for (KeycloakClient client : device.getKeycloakClients())
+                store(diffs, client, deviceDN);
             for (LdapDicomConfigurationExtension ext : extensions)
                 ext.storeChilds(diffs, deviceDN, device);
         }
@@ -628,12 +715,21 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     }
 
     private void store(ConfigurationChanges diffs, WebApplication webapp, String deviceDN) throws NamingException {
-        String webappDN = webappDN(webapp.getApplicationName(), deviceDN);
+        String webappDN = webAppDN(webapp.getApplicationName(), deviceDN);
         ConfigurationChanges.ModifiedObject ldapObj =
                 ConfigurationChanges.addModifiedObject(diffs, webappDN, ConfigurationChanges.ChangeType.C);
         createSubcontext(webappDN,
                 storeTo(ConfigurationChanges.nullifyIfNotVerbose(diffs, ldapObj),
                         webapp, deviceDN, new BasicAttributes(true)));
+    }
+
+    private void store(ConfigurationChanges diffs, KeycloakClient client, String deviceDN) throws NamingException {
+        String clientDN = keycloakClientDN(client.getKeycloakClientID(), deviceDN);
+        ConfigurationChanges.ModifiedObject ldapObj =
+                ConfigurationChanges.addModifiedObject(diffs, clientDN, ConfigurationChanges.ChangeType.C);
+        createSubcontext(clientDN,
+                storeTo(ConfigurationChanges.nullifyIfNotVerbose(diffs, ldapObj),
+                        client, new BasicAttributes(true)));
     }
 
     private void storeChilds(ConfigurationChanges diffs, String aeDN, ApplicationEntity ae)
@@ -693,19 +789,23 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     }
 
     private void registerDiff(Device prev, Device device, List<String> dns) throws ConfigurationException {
-        for (String aet : device.getApplicationAETitles()) {
+        for (String aet : device.getApplicationAETitles())
             if (!aet.equals("*") && prev.getApplicationEntity(aet) == null)
                 dns.add(registerAET(aet));
-        }
+        for (String webAppName : device.getWebApplicationNames())
+            if (!webAppName.equals("*") && prev.getWebApplication(webAppName) == null)
+                dns.add(registerWebApp(webAppName));
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.registerDiff(prev, device, dns);
     }
 
     private void markForUnregister(Device prev, Device device, List<String> dns) {
-        for (String aet : prev.getApplicationAETitles()) {
+        for (String aet : prev.getApplicationAETitles())
             if (!aet.equals("*") && device.getApplicationEntity(aet) == null)
                 dns.add(aetDN(aet, aetsRegistryDN));
-        }
+        for (String webAppName : prev.getWebApplicationNames())
+            if (!webAppName.equals("*") && device.getWebApplication(webAppName) == null)
+                dns.add(webAppDN(webAppName, webAppsRegistryDN));
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.markForUnregister(prev, device, dns);
     }
@@ -731,6 +831,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         mergeConnections(diffs, prev, device, deviceDN);
         mergeAEs(diffs, prev, device, deviceDN, preserveVendorData);
         mergeWebApps(diffs, prev, device, deviceDN);
+        mergeKeycloakClients(diffs, prev, device, deviceDN);
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.mergeChilds(diffs, prev, device, deviceDN);
     }
@@ -757,6 +858,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 String rdn = ne.next().getName();
                 if (!rdn.equals("dicomAETitle=*"))
                     dns.add(rdn + ',' + aetsRegistryDN);
+                if (!rdn.equals("dcmWebAppName=*"))
+                    dns.add(rdn + ',' + webAppsRegistryDN);
             }
         } finally {
             LdapUtils.safeClose(ne);
@@ -804,16 +907,18 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         this.configurationDN = configurationDN;
         this.devicesDN = CN_DEVICES + configurationDN;
         this.aetsRegistryDN = CN_UNIQUE_AE_TITLES_REGISTRY + configurationDN;
+        this.webAppsRegistryDN = CN_UNIQUE_WEB_APP_NAMES_REGISTRY + configurationDN;
     }
 
     public String getConfigurationDN() {
         return configurationDN;
     }
 
-   private void clearConfigurationDN() {
+    private void clearConfigurationDN() {
         this.configurationDN = null;
         this.devicesDN = null;
         this.aetsRegistryDN = null;
+        this.webAppsRegistryDN = null;
     }
 
     public void ensureConfigurationExists() throws ConfigurationException {
@@ -831,6 +936,9 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             createSubcontext(aetsRegistryDN,
                     LdapUtils.attrs("dicomUniqueAETitlesRegistryRoot", 
                             "cn", "Unique AE Titles Registry"));
+            createSubcontext(webAppsRegistryDN,
+                    LdapUtils.attrs("dcmUniqueWebAppNamesRegistryRoot",
+                            "cn", "Unique Web Application Names Registry"));
             LOG.info("Create DICOM Configuration at {}", configurationDN);
         } catch (NamingException e) {
             clearConfigurationDN();
@@ -838,7 +946,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         }
     }
 
-   private boolean findConfiguration() throws ConfigurationException {
+    private boolean findConfiguration() throws ConfigurationException {
         NamingEnumeration<SearchResult> ne = null;
         try {
             SearchControls ctls = searchControlSubtreeScope(1, StringUtils.EMPTY_STRING, false);
@@ -911,7 +1019,11 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             return attrs;
 
         objectclass.add("dcmDevice");
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmRoleSelectionNegotiationLenient",
+                device.isRoleSelectionNegotiationLenient(), false);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmLimitOpenAssociations", device.getLimitOpenAssociations(), 0);
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmLimitAssociationsInitiatedBy",
+                device.getLimitAssociationsInitiatedBy());
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmTrustStoreURL", device.getTrustStoreURL(), null);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmTrustStoreType", device.getTrustStoreType(), null);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmTrustStorePin", device.getTrustStorePin(), null);
@@ -953,6 +1065,10 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 conn.getAcceptTimeout(), Connection.NO_TIMEOUT);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmARRPTimeout",
                 conn.getReleaseTimeout(), Connection.NO_TIMEOUT);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmSendTimeout",
+                conn.getSendTimeout(), Connection.NO_TIMEOUT);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmStoreTimeout",
+                conn.getStoreTimeout(), Connection.NO_TIMEOUT);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmResponseTimeout",
                 conn.getResponseTimeout(), Connection.NO_TIMEOUT);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmRetrieveTimeout",
@@ -1002,6 +1118,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             return attrs;
 
         objectclass.add("dcmNetworkAE");
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmRoleSelectionNegotiationLenient",
+                ae.getRoleSelectionNegotiationLenient(), null);
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmPreferredTransferSyntax",
                 LdapUtils.addOrdinalPrefix(ae.getPreferredTransferSyntaxes()));
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "hl7ApplicationName", ae.getHl7ApplicationName(), null);
@@ -1020,11 +1138,31 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmWebAppName", webapp.getApplicationName(), null);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dicomDescription", webapp.getDescription(), null);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmWebServicePath", webapp.getServicePath(), null);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmKeycloakClientID", webapp.getKeycloakClientID(), null);
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmWebServiceClass", webapp.getServiceClasses());
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dicomAETitle", webapp.getAETitle(), null);
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dicomApplicationCluster", webapp.getApplicationClusters());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmProperty", webapp.getProperties());
         LdapUtils.storeConnRefs(ldapObj, attrs, webapp.getConnections(), deviceDN);
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dicomInstalled", webapp.getInstalled(), null);
+        return attrs;
+    }
+
+    private Attributes storeTo(ConfigurationChanges.ModifiedObject ldapObj, KeycloakClient client, Attributes attrs) {
+        attrs.put("objectclass", "dcmKeycloakClient");
+        attrs.put("dcmKeycloakClientID", client.getKeycloakClientID());
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmURI", client.getKeycloakServerURL(), null);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmKeycloakRealm", client.getKeycloakRealm(), null);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmKeycloakGrantType",
+                client.getKeycloakGrantType(), KeycloakClient.GrantType.client_credentials);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmKeycloakClientSecret",
+                client.getKeycloakClientSecret(), null);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmTLSAllowAnyHostname",
+                client.isTLSAllowAnyHostname(), false);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmTLSDisableTrustManager",
+                client.isTLSDisableTrustManager(), false);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "uid", client.getUserID(), null);
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "userPassword", client.getPassword(), null);
         return attrs;
     }
 
@@ -1231,6 +1369,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         loadConnections(device, deviceDN);
         loadApplicationEntities(device, deviceDN);
         loadWebApplications(device, deviceDN);
+        loadKeycloakClients(device, deviceDN);
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.loadChilds(device, deviceDN);
     }
@@ -1296,21 +1435,21 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         device.setStationName(LdapUtils.stringValue(attrs.get("dicomStationName"), null));
         device.setDeviceSerialNumber(LdapUtils.stringValue(attrs.get("dicomDeviceSerialNumber"), null));
         device.setIssuerOfPatientID(
-                issuerValue(attrs.get("dicomIssuerOfPatientID")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfPatientID")));
         device.setIssuerOfAccessionNumber(
-                issuerValue(attrs.get("dicomIssuerOfAccessionNumber")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfAccessionNumber")));
         device.setOrderPlacerIdentifier(
-                issuerValue(attrs.get("dicomOrderPlacerIdentifier")));
+                LdapUtils.issuerValue(attrs.get("dicomOrderPlacerIdentifier")));
         device.setOrderFillerIdentifier(
-                issuerValue(attrs.get("dicomOrderFillerIdentifier")));
+                LdapUtils.issuerValue(attrs.get("dicomOrderFillerIdentifier")));
         device.setIssuerOfAdmissionID(
-                issuerValue(attrs.get("dicomIssuerOfAdmissionID")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfAdmissionID")));
         device.setIssuerOfServiceEpisodeID(
-                issuerValue(attrs.get("dicomIssuerOfServiceEpisodeID")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfServiceEpisodeID")));
         device.setIssuerOfContainerIdentifier(
-                issuerValue(attrs.get("dicomIssuerOfContainerIdentifier")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfContainerIdentifier")));
         device.setIssuerOfSpecimenIdentifier(
-                issuerValue(attrs.get("dicomIssuerOfSpecimenIdentifier")));
+                LdapUtils.issuerValue(attrs.get("dicomIssuerOfSpecimenIdentifier")));
         device.setInstitutionNames(LdapUtils.stringArray(attrs.get("dicomInstitutionName")));
         device.setInstitutionCodes(LdapUtils.codeArray(attrs.get("dicomInstitutionCode")));
         device.setInstitutionAddresses(LdapUtils.stringArray(attrs.get("dicomInstitutionAddress")));
@@ -1327,8 +1466,12 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!LdapUtils.hasObjectClass(attrs, "dcmDevice"))
             return;
         
+        device.setRoleSelectionNegotiationLenient(
+                LdapUtils.booleanValue(attrs.get("dcmRoleSelectionNegotiationLenient"), false));
         device.setLimitOpenAssociations(
                 LdapUtils.intValue(attrs.get("dcmLimitOpenAssociations"), 0));
+        device.setLimitAssociationsInitiatedBy(
+                LdapUtils.stringArray(attrs.get("dcmLimitAssociationsInitiatedBy")));
         device.setTrustStoreURL(LdapUtils.stringValue(attrs.get("dcmTrustStoreURL"), null));
         device.setTrustStoreType(LdapUtils.stringValue(attrs.get("dcmTrustStoreType"), null));
         device.setTrustStorePin(LdapUtils.stringValue(attrs.get("dcmTrustStorePin"), null));
@@ -1399,6 +1542,10 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 Connection.NO_TIMEOUT));
         conn.setReleaseTimeout(LdapUtils.intValue(attrs.get("dcmARRPTimeout"),
                 Connection.NO_TIMEOUT));
+        conn.setSendTimeout(LdapUtils.intValue(attrs.get("dcmSendTimeout"),
+                Connection.NO_TIMEOUT));
+        conn.setStoreTimeout(LdapUtils.intValue(attrs.get("dcmStoreTimeout"),
+                Connection.NO_TIMEOUT));
         conn.setResponseTimeout(LdapUtils.intValue(attrs.get("dcmResponseTimeout"),
                 Connection.NO_TIMEOUT));
         conn.setRetrieveTimeout(LdapUtils.intValue(attrs.get("dcmRetrieveTimeout"),
@@ -1466,6 +1613,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!LdapUtils.hasObjectClass(attrs, "dcmNetworkAE"))
             return;
 
+        ae.setRoleSelectionNegotiationLenient(
+                LdapUtils.booleanValue(attrs.get("dcmRoleSelectionNegotiationLenient"), null));
         ae.setAcceptedCallingAETitles(LdapUtils.stringArray(attrs.get("dcmAcceptedCallingAETitle")));
         ae.setPreferredTransferSyntaxes(LdapUtils.removeOrdinalPrefix(
                 LdapUtils.stringArray(attrs.get("dcmPreferredTransferSyntax"))));
@@ -1509,10 +1658,42 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     private void loadFrom(WebApplication webapp, Attributes attrs) throws NamingException {
         webapp.setDescription(LdapUtils.stringValue(attrs.get("dicomDescription"), null));
         webapp.setServicePath(LdapUtils.stringValue(attrs.get("dcmWebServicePath"), null));
+        webapp.setKeycloakClientID(LdapUtils.stringValue(attrs.get("dcmKeycloakClientID"), null));
         webapp.setServiceClasses(LdapUtils.enumArray(WebApplication.ServiceClass.class, attrs.get("dcmWebServiceClass")));
         webapp.setAETitle(LdapUtils.stringValue(attrs.get("dicomAETitle"), null));
         webapp.setApplicationClusters(LdapUtils.stringArray(attrs.get("dicomApplicationCluster")));
+        webapp.setProperties(LdapUtils.stringArray(attrs.get("dcmProperty")));
         webapp.setInstalled(LdapUtils.booleanValue(attrs.get("dicomInstalled"), null));
+    }
+
+    private void loadKeycloakClients(Device device, String deviceDN) throws NamingException {
+        NamingEnumeration<SearchResult> ne = search(deviceDN, "(objectclass=dcmKeycloakClient)");
+        try {
+            while (ne.hasMore()) {
+                device.addKeycloakClient(loadKeycloakClient(ne.next()));
+            }
+        } finally {
+            LdapUtils.safeClose(ne);
+        }
+    }
+
+    private KeycloakClient loadKeycloakClient(SearchResult sr) throws NamingException {
+        Attributes attrs = sr.getAttributes();
+        KeycloakClient client = new KeycloakClient(LdapUtils.stringValue(attrs.get("dcmKeycloakClientID"), null));
+        loadFrom(client, attrs);
+        return client ;
+    }
+
+    private void loadFrom(KeycloakClient client, Attributes attrs) throws NamingException {
+        client.setKeycloakServerURL(LdapUtils.stringValue(attrs.get("dcmURI"), null));
+        client.setKeycloakRealm(LdapUtils.stringValue(attrs.get("dcmKeycloakRealm"), null));
+        client.setKeycloakGrantType(LdapUtils.enumValue(KeycloakClient.GrantType.class, attrs.get("dcmKeycloakGrantType"),
+                        KeycloakClient.GrantType.client_credentials));
+        client.setKeycloakClientSecret(LdapUtils.stringValue(attrs.get("dcmKeycloakClientSecret"), null));
+        client.setTLSAllowAnyHostname(LdapUtils.booleanValue(attrs.get("dcmTLSAllowAnyHostname"), false));
+        client.setTLSDisableTrustManager(LdapUtils.booleanValue(attrs.get("dcmTLSDisableTrustManager"), false));
+        client.setUserID(LdapUtils.stringValue(attrs.get("uid"), null));
+        client.setPassword(LdapUtils.stringValue(attrs.get("userPassword"), null));
     }
 
     private void loadTransferCapabilities(ApplicationEntity ae, String aeDN)
@@ -1616,9 +1797,15 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!extended)
             return mods;
 
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmRoleSelectionNegotiationLenient",
+                a.isRoleSelectionNegotiationLenient(),
+                b.isRoleSelectionNegotiationLenient(), false);
         LdapUtils.storeDiffObject(ldapObj, mods, "dcmLimitOpenAssociations",
                 a.getLimitOpenAssociations(),
                 b.getLimitOpenAssociations(), null);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmLimitAssociationsInitiatedBy",
+                a.getLimitAssociationsInitiatedBy(),
+                b.getLimitAssociationsInitiatedBy());
         LdapUtils.storeDiffObject(ldapObj, mods, "dcmTrustStoreURL",
                 a.getTrustStoreURL(),
                 b.getTrustStoreURL(), null);
@@ -1702,6 +1889,14 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 a.getReleaseTimeout(),
                 b.getReleaseTimeout(),
                 Connection.NO_TIMEOUT);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmSendTimeout",
+                a.getSendTimeout(),
+                b.getSendTimeout(),
+                Connection.NO_TIMEOUT);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmStoreTimeout",
+                a.getStoreTimeout(),
+                b.getStoreTimeout(),
+                Connection.NO_TIMEOUT);
         LdapUtils.storeDiff(ldapObj, mods, "dcmResponseTimeout",
                 a.getResponseTimeout(),
                 b.getResponseTimeout(),
@@ -1746,7 +1941,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 Connection.DEFAULT_TLS_PROTOCOLS);
         LdapUtils.storeDiff(ldapObj, mods, "dcmTLSNeedClientAuth",
                 a.isTlsNeedClientAuth(),
-                a.isTlsNeedClientAuth(),
+                b.isTlsNeedClientAuth(),
                 true);
         LdapUtils.storeDiff(ldapObj, mods, "dcmSendPDULength",
                 a.getSendPDULength(),
@@ -1808,6 +2003,9 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!extended)
             return mods;
 
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmRoleSelectionNegotiationLenient",
+                a.isRoleSelectionNegotiationLenient(),
+                b.isRoleSelectionNegotiationLenient(), null);
         LdapUtils.storeDiffWithOrdinalPrefix(ldapObj, mods, "dcmPreferredTransferSyntax",
                 a.getPreferredTransferSyntaxes(),
                 b.getPreferredTransferSyntaxes());
@@ -1906,9 +2104,13 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         LdapUtils.storeDiffObject(ldapObj, mods, "dicomAETitle",
                 a.getAETitle(),
                 b.getAETitle(), null);
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmKeycloakClientID",
+                a.getKeycloakClientID(),
+                b.getKeycloakClientID(), null);
         LdapUtils.storeDiff(ldapObj, mods, "dicomApplicationCluster",
                 a.getApplicationClusters(),
                 b.getApplicationClusters());
+        LdapUtils.storeDiffProperties(ldapObj, mods, "dcmProperty", a.getProperties(), b.getProperties());
         LdapUtils.storeDiff(ldapObj, mods, "dicomNetworkConnectionReference",
                 a.getConnections(),
                 b.getConnections(),
@@ -1916,6 +2118,25 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         LdapUtils.storeDiffObject(ldapObj, mods, "dicomInstalled",
                 a.getInstalled(),
                 b.getInstalled(), null);
+        return mods;
+    }
+
+    private List<ModificationItem> storeDiffs(ConfigurationChanges.ModifiedObject ldapObj, KeycloakClient a,
+            KeycloakClient b, List<ModificationItem> mods) {
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmURI",
+                a.getKeycloakServerURL(), b.getKeycloakServerURL(), null);
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmKeycloakRealm",
+                a.getKeycloakRealm(), b.getKeycloakRealm(), null);
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmKeycloakGrantType",
+                a.getKeycloakGrantType(), b.getKeycloakGrantType(), KeycloakClient.GrantType.client_credentials);
+        LdapUtils.storeDiffObject(ldapObj, mods, "dcmKeycloakClientSecret",
+                a.getKeycloakClientSecret(), b.getKeycloakClientSecret(), null);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmTLSAllowAnyHostname",
+                a.isTLSAllowAnyHostname(), b.isTLSAllowAnyHostname(), false);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmTLSDisableTrustManager",
+                a.isTLSDisableTrustManager(), b.isTLSDisableTrustManager(), false);
+        LdapUtils.storeDiffObject(ldapObj, mods, "uid", a.getUserID(), b.getUserID(), null);
+        LdapUtils.storeDiffObject(ldapObj, mods, "userPassword", a.getPassword(), b.getPassword(), null);
         return mods;
     }
 
@@ -1928,10 +2149,6 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             bb[i] = (byte[]) attr.get(i);
 
         return bb;
-    }
-
-    private static Issuer issuerValue(Attribute attr) throws NamingException {
-        return attr != null ? new Issuer((String) attr.get()) : null;
     }
 
     private void mergeAEs(ConfigurationChanges diffs, Device prevDev, Device dev, String deviceDN, boolean preserveVendorData)
@@ -1975,11 +2192,11 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     private void mergeWebApps(ConfigurationChanges diffs, Device prevDev, Device dev, String deviceDN)
             throws NamingException {
         Collection<String> names = dev.getWebApplicationNames();
-        for (String aet : prevDev.getWebApplicationNames()) {
-            if (!names.contains(aet)) {
-                String aetDN = aetDN(aet, deviceDN);
-                destroySubcontextWithChilds(aetDN);
-                ConfigurationChanges.addModifiedObject(diffs, aetDN, ConfigurationChanges.ChangeType.D);
+        for (String webAppName : prevDev.getWebApplicationNames()) {
+            if (!names.contains(webAppName)) {
+                String webAppDN = webAppDN(webAppName, deviceDN);
+                destroySubcontextWithChilds(webAppDN);
+                ConfigurationChanges.addModifiedObject(diffs, webAppDN, ConfigurationChanges.ChangeType.D);
             }
         }
         Collection<String> prevNames = prevDev.getWebApplicationNames();
@@ -1995,10 +2212,40 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
 
     private void merge(ConfigurationChanges diffs, WebApplication prev, WebApplication webapp, String deviceDN)
             throws NamingException {
-        String webappDN = webappDN(webapp.getApplicationName(), deviceDN);
+        String webappDN = webAppDN(webapp.getApplicationName(), deviceDN);
         ConfigurationChanges.ModifiedObject ldapObj =
                 ConfigurationChanges.addModifiedObject(diffs, webappDN, ConfigurationChanges.ChangeType.U);
         modifyAttributes(webappDN, storeDiffs(ldapObj, prev, webapp, deviceDN, new ArrayList<ModificationItem>()));
+        ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
+    }
+
+    private void mergeKeycloakClients(ConfigurationChanges diffs, Device prevDev, Device dev, String deviceDN)
+            throws NamingException {
+        Collection<String> clientIDs = dev.getKeycloakClientIDs();
+        for (String clientID : prevDev.getKeycloakClientIDs()) {
+            if (!clientIDs.contains(clientID)) {
+                String keycloakClientDN = keycloakClientDN(clientID, deviceDN);
+                destroySubcontextWithChilds(keycloakClientDN);
+                ConfigurationChanges.addModifiedObject(diffs, keycloakClientDN, ConfigurationChanges.ChangeType.D);
+            }
+        }
+        Collection<String> prevClientIDs = prevDev.getKeycloakClientIDs();
+        for (KeycloakClient client : dev.getKeycloakClients()) {
+            String clientID = client.getKeycloakClientID();
+            if (!prevClientIDs.contains(clientID)) {
+                store(diffs, client, deviceDN);
+            }
+            else
+                merge(diffs, prevDev.getKeycloakClient(clientID), client, deviceDN);
+        }
+    }
+
+    private void merge(ConfigurationChanges diffs, KeycloakClient prev, KeycloakClient client, String deviceDN)
+            throws NamingException {
+        String clientDN = keycloakClientDN(client.getKeycloakClientID(), deviceDN);
+        ConfigurationChanges.ModifiedObject ldapObj =
+                ConfigurationChanges.addModifiedObject(diffs, clientDN, ConfigurationChanges.ChangeType.U);
+        modifyAttributes(clientDN, storeDiffs(ldapObj, prev, client, new ArrayList<ModificationItem>()));
         ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
     }
 
@@ -2113,11 +2360,15 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
     }
 
     private static String aetDN(String aet, String parentDN) {
-        return LdapUtils.dnOf("dicomAETitle" ,aet, parentDN);
+        return LdapUtils.dnOf("dicomAETitle" , aet, parentDN);
     }
 
-    private static String webappDN(String aet, String parentDN) {
-        return LdapUtils.dnOf("dcmWebAppName" ,aet, parentDN);
+    private static String webAppDN(String webAppName, String parentDN) {
+        return LdapUtils.dnOf("dcmWebAppName" , webAppName, parentDN);
+    }
+
+    private static String keycloakClientDN(String keycloakClientID, String parentDN) {
+        return LdapUtils.dnOf("dcmKeycloakClientID" , keycloakClientID, parentDN);
     }
 
     @Override
@@ -2150,6 +2401,94 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         for (byte[] val : vals)
             attr.add(val);
         return attr;
+    }
+
+    public void store(ConfigurationChanges diffs, Map<String, BasicBulkDataDescriptor> descriptors, String parentDN)
+            throws NamingException {
+        for (BasicBulkDataDescriptor descriptor : descriptors.values()) {
+            String dn = LdapUtils.dnOf("dcmBulkDataDescriptorID",
+                    descriptor.getBulkDataDescriptorID(), parentDN);
+            ConfigurationChanges.ModifiedObject ldapObj =
+                    ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.C);
+            createSubcontext(dn, storeTo(ldapObj, descriptor, new BasicAttributes(true)));
+        }
+    }
+
+    private static Attributes storeTo(ConfigurationChanges.ModifiedObject ldapObj,
+                                      BasicBulkDataDescriptor descriptor, BasicAttributes attrs) {
+        attrs.put("objectclass", "dcmBulkDataDescriptor");
+        LdapUtils.storeNotNullOrDef(ldapObj, attrs, "dcmBulkDataDescriptorID",
+                descriptor.getBulkDataDescriptorID(), null);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmBulkDataExcludeDefaults",
+                descriptor.isExcludeDefaults(), false);
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmAttributeSelector", descriptor.getAttributeSelectors());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmBulkDataVRLengthThreshold",
+                descriptor.getLengthsThresholdsAsStrings());
+        return attrs;
+    }
+
+    public void load(Map<String, BasicBulkDataDescriptor> descriptors, String parentDN) throws NamingException {
+        NamingEnumeration<SearchResult> ne =
+                search(parentDN, "(objectclass=dcmBulkDataDescriptor)");
+        try {
+            while (ne.hasMore()) {
+                BasicBulkDataDescriptor descriptor = loadBulkDataDescriptor(ne.next());
+                descriptors.put(descriptor.getBulkDataDescriptorID(), descriptor);
+            }
+        } finally {
+            LdapUtils.safeClose(ne);
+        }
+    }
+
+    private BasicBulkDataDescriptor loadBulkDataDescriptor(SearchResult sr) throws NamingException {
+        Attributes attrs = sr.getAttributes();
+        BasicBulkDataDescriptor descriptor = new BasicBulkDataDescriptor(
+                LdapUtils.stringValue(attrs.get("dcmBulkDataDescriptorID"), null));
+        descriptor.excludeDefaults(LdapUtils.booleanValue(attrs.get("dcmBulkDataExcludeDefaults"), false));
+        descriptor.setAttributeSelectorsFromStrings(LdapUtils.stringArray(attrs.get("dcmAttributeSelector")));
+        descriptor.setLengthsThresholdsFromStrings(LdapUtils.stringArray(attrs.get("dcmBulkDataVRLengthThreshold")));
+        return descriptor ;
+    }
+
+    public void merge(ConfigurationChanges diffs,
+                      Map<String,BasicBulkDataDescriptor> prevs,
+                      Map<String,BasicBulkDataDescriptor> descriptors,
+                      String parentDN)
+            throws NamingException {
+        for (String prevBulkDataDescriptorID : prevs.keySet()) {
+            if (!descriptors.containsKey(prevBulkDataDescriptorID)) {
+                String dn = LdapUtils.dnOf("dcmBulkDataDescriptorID", prevBulkDataDescriptorID, parentDN);
+                destroySubcontext(dn);
+                ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.D);
+            }
+        }
+        for (Map.Entry<String, BasicBulkDataDescriptor> entry : descriptors.entrySet()) {
+            String dn = LdapUtils.dnOf("dcmBulkDataDescriptorID", entry.getKey(), parentDN);
+            BasicBulkDataDescriptor prev = prevs.get(entry.getKey());
+            if (prev == null) {
+                ConfigurationChanges.ModifiedObject ldapObj =
+                        ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.C);
+                createSubcontext(dn, storeTo(ldapObj, prev, new BasicAttributes(true)));
+            } else {
+                ConfigurationChanges.ModifiedObject ldapObj =
+                        ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);
+                modifyAttributes(dn, storeDiffs(ldapObj, prev, entry.getValue(), new ArrayList<ModificationItem>()));
+                ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
+            }
+        }
+    }
+
+    private List<ModificationItem> storeDiffs(ConfigurationChanges.ModifiedObject ldapObj,
+                                              BasicBulkDataDescriptor prev,
+                                              BasicBulkDataDescriptor descriptor,
+                                              ArrayList<ModificationItem> mods) {
+        LdapUtils.storeDiff(ldapObj, mods, "dcmBulkDataExcludeDefaults",
+                prev.isExcludeDefaults(), descriptor.isExcludeDefaults(), false);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmAttributeSelector",
+                prev.getAttributeSelectors(), descriptor.getAttributeSelectors());
+        LdapUtils.storeDiff(ldapObj, mods, "dcmBulkDataVRLengthThreshold",
+                prev.getLengthsThresholdsAsStrings(), descriptor.getLengthsThresholdsAsStrings());
+        return mods;
     }
 
     public void store(AttributeCoercions coercions, String parentDN)
@@ -2249,11 +2588,14 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         ArrayList<ApplicationEntityInfo> results = new ArrayList<ApplicationEntityInfo>();
         NamingEnumeration<SearchResult> ne = null;
         try {
-            ne = search(keys.getDeviceName(), AE_ATTRS, toFilter(keys));
+            String deviceName = keys.getDeviceName();
+            ne = search(deviceName, AE_ATTRS, toFilter(keys));
+            Map<String, Connection> connCache = new HashMap<>();
             while (ne.hasMore()) {
                 ApplicationEntityInfo aetInfo = new ApplicationEntityInfo();
                 SearchResult ne1 = ne.next();
-                loadFrom(aetInfo, ne1.getAttributes(), LdapUtils.cutDeviceName(ne1.getName()));
+                loadFrom(aetInfo, ne1.getAttributes(),
+                        deviceName != null ? deviceName : LdapUtils.cutDeviceName(ne1.getName()), connCache);
                 results.add(aetInfo);
             }
         } catch (NameNotFoundException e) {
@@ -2272,14 +2614,19 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         if (!configurationExists())
             return new WebApplicationInfo[0];
 
-        ArrayList<WebApplicationInfo> results = new ArrayList<WebApplicationInfo>();
+        ArrayList<WebApplicationInfo> results = new ArrayList<>();
         NamingEnumeration<SearchResult> ne = null;
         try {
-            ne = search(keys.getDeviceName(), WEBAPP_ATTRS, toFilter(keys));
+            String deviceName = keys.getDeviceName();
+            ne = search(deviceName, WEBAPP_ATTRS, toFilter(keys));
+            Map<String, Connection> connCache = new HashMap<>();
+            Map<String, KeycloakClient> keycloakClientCache = new HashMap<>();
             while (ne.hasMore()) {
                 WebApplicationInfo webappInfo = new WebApplicationInfo();
                 SearchResult ne1 = ne.next();
-                loadFrom(webappInfo, ne1.getAttributes(), LdapUtils.cutDeviceName(ne1.getName()));
+                loadFrom(webappInfo, ne1.getAttributes(),
+                        deviceName != null ? deviceName : LdapUtils.cutDeviceName(ne1.getName()),
+                        connCache, keycloakClientCache);
                 results.add(webappInfo);
             }
         } catch (NameNotFoundException e) {
@@ -2331,6 +2678,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         appendFilter("dcmWebServiceClass", keys.getServiceClasses(), sb);
         appendFilter("dicomAETitle", keys.getAETitle(), sb);
         appendFilter("dicomApplicationCluster", keys.getApplicationClusters(), sb);
+        appendFilter("dcmKeycloakClientID", keys.getKeycloakClientID(), sb);
         sb.append(")");
         return sb.toString();
     }

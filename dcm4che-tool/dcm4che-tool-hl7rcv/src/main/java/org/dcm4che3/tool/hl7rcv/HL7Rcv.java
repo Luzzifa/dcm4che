@@ -90,7 +90,7 @@ public class HL7Rcv {
     private final HL7MessageListener handler = new HL7MessageListener() {
 
         @Override
-        public byte[] onMessage(HL7Application hl7App, Connection conn, Socket s, UnparsedHL7Message msg)
+        public UnparsedHL7Message onMessage(HL7Application hl7App, Connection conn, Socket s, UnparsedHL7Message msg)
                 throws HL7Exception {
             try {
                 return HL7Rcv.this.onMessage(msg);
@@ -133,6 +133,7 @@ public class HL7Rcv {
             throws ParseException {
         Options opts = new Options();
         addOptions(opts);
+        CLIUtils.addMLLP2Option(opts);
         CLIUtils.addSocketOptions(opts);
         CLIUtils.addTLSOptions(opts);
         CLIUtils.addCommonOptions(opts);
@@ -204,8 +205,7 @@ public class HL7Rcv {
     }
 
     private static void configure(HL7Rcv main, CommandLine cl)
-            throws Exception, MalformedURLException, ParseException,
-            IOException {
+            throws Exception {
         if (!cl.hasOption("ignore"))
             main.setStorageDirectory(
                     cl.getOptionValue("directory", "."));
@@ -215,6 +215,7 @@ public class HL7Rcv {
             main.setXSLTParameters(cl.getOptionValues("xsl-param"));
         }
         main.setCharacterSet(cl.getOptionValue("charset"));
+        main.conn.setProtocol(CLIUtils.isMLLP2(cl) ? Protocol.HL7_MLLP2 : Protocol.HL7);
         configureBindServer(main.conn, cl);
         CLIUtils.configure(main.conn, cl);
     }
@@ -232,15 +233,15 @@ public class HL7Rcv {
             conn.setHostname(hostAndPort[0]);
     }
 
-    private byte[] onMessage(UnparsedHL7Message msg)
+    private UnparsedHL7Message onMessage(UnparsedHL7Message msg)
                 throws Exception {
             if (storageDir != null)
                 storeToFile(msg.data(), new File(
                             new File(storageDir, msg.msh().getMessageType()),
                                 msg.msh().getField(9, "_NULL_")));
-            return (tpls == null)
+            return new UnparsedHL7Message(tpls == null
                 ? HL7Message.makeACK(msg.msh(), HL7Exception.AA, null).getBytes(null)
-                : xslt(msg);
+                : xslt(msg));
     }
 
     private void storeToFile(byte[] data, File f) throws IOException {

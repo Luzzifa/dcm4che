@@ -50,6 +50,8 @@ import java.text.ParsePosition;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.StringTokenizer;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.dcm4che3.data.Attributes;
 
@@ -61,7 +63,8 @@ public class AttributesFormat extends Format {
 
     private static final long serialVersionUID = 1901510733531643054L;
 
-    private static final char[] CHARS = {'0', '1', '2', '3', '4', '5','6', '7',
+    private static final char[] CHARS = {
+            '0', '1', '2', '3', '4', '5','6', '7',
             '8', '9', 'a', 'b', 'c', 'd','e', 'f',
             'g', 'h', 'i', 'j', 'k', 'l','m', 'n',
             'o', 'p', 'q', 'r', 's', 't','u', 'v'};
@@ -70,6 +73,7 @@ public class AttributesFormat extends Format {
     private final String pattern;
     private final int[][] tagPaths;
     private final int[] index;
+    private final int[] offsets;
     private final Type[] types;
     private final MessageFormat format;
 
@@ -80,6 +84,7 @@ public class AttributesFormat extends Format {
         this.tagPaths = new int[n][];
         this.index = new int[n];
         this.types = new Type[n];
+        this.offsets = new int[n];
         this.format = buildMessageFormat(tokens);
     }
 
@@ -127,13 +132,14 @@ public class AttributesFormat extends Format {
             formatBuilder.append(tokens.get(j++)).append('{').append(i);
             String tagStr = tokens.get(j++);
             int typeStart = tagStr.indexOf(',') + 1;
-            if (!tagStr.startsWith("now")) {
+            boolean rnd = tagStr.startsWith("rnd");
+            if (!rnd && !tagStr.startsWith("now")) {
                 int tagStrLen = typeStart != 0
                         ? typeStart - 1
                         : tagStr.length();
-                
+
                 int indexStart = tagStr.charAt(tagStrLen-1) == ']'
-                        ? tagStr.lastIndexOf('[', tagStrLen-3) + 1 
+                        ? tagStr.lastIndexOf('[', tagStrLen-3) + 1
                         : 0;
                 try {
                     tagPaths[i] = TagUtils.parseTagPath(tagStr.substring(0, indexStart != 0 ? indexStart - 1 : tagStrLen));
@@ -151,11 +157,34 @@ public class AttributesFormat extends Format {
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException(pattern);
                 }
-                if (types[i] != Type.hash && types[i] != Type.md5 && types[i] != Type.urlencoded)
-                    formatBuilder.append(
-                            typeStart > 0 ? tagStr.substring(typeStart-1) : tagStr);
+                switch (types[i]) {
+                    case number:
+                    case date:
+                    case time:
+                    case choice:
+                        formatBuilder.append(
+                                typeStart > 0 ? tagStr.substring(typeStart - 1) : tagStr);
+                        break;
+                    case offset:
+                        try {
+                            offsets[i] = Integer.parseInt(tagStr.substring(typeEnd+1));
+                        } catch (IllegalArgumentException e) {
+                            throw new IllegalArgumentException(pattern);
+                        }
+                }
             } else {
                 types[i] = Type.none;
+            }
+            if (rnd) {
+                switch (types[i]) {
+                    case none:
+                        types[i] = Type.rnd;
+                    case uuid:
+                    case uid:
+                        break;
+                    default:
+                        throw new IllegalArgumentException(pattern);
+                }
             }
             formatBuilder.append('}');
         }
@@ -182,14 +211,14 @@ public class AttributesFormat extends Format {
         for (int i = 0; i < args.length; i++) {
             int[] tagPath = tagPaths[i];
             if (tagPath == null) { // now
-                args[i] = types[i].toArg(attrs, 0, index[i]);
+                args[i] = types[i].toArg(attrs, 0, index[i], offsets[i]);
             } else {
                 int last = tagPath.length - 1;
                 Attributes item = attrs;
                 for (int j = 0; j < last && item != null; j++) {
                     item = item.getNestedDataset(tagPath[j]);
                 }
-                args[i] = item != null ? types[i].toArg(item, tagPath[last], index[i]) : null;
+                args[i] = item != null ? types[i].toArg(item, tagPath[last], index[i], offsets[i]) : null;
             }
         }
         return args;
@@ -205,54 +234,60 @@ public class AttributesFormat extends Format {
         return pattern;
     }
 
-    private static enum Type {
+    private enum Type {
         none {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 return attrs.getString(tag, index);
             }
         },
         number {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 return attrs.getDouble(tag, index, 0.);
+            }
+        },
+        offset {
+            @Override
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
+                return Integer.toString(attrs.getInt(tag, index, 0) + offset);
             }
         },
         date {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 return tag != 0 ? attrs.getDate(tag, index) : new Date();
             }
         },
         time {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 return tag != 0 ? attrs.getDate(tag, index) : new Date();
             }
         },
         choice {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 return attrs.getDouble(tag, index, 0.);
             }
         },
         hash {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 String s = attrs.getString(tag, index);
                 return s != null ? TagUtils.toHexString(s.hashCode()) : null;
             }
         },
         md5 {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 String s = attrs.getString(tag, index);
                 return s != null ? getMD5String(s) : null;
             }
         },
         urlencoded {
             @Override
-            Object toArg(Attributes attrs, int tag, int index) {
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
                 String s = attrs.getString(tag, index);
                 try {
                     return s != null ? URLEncoder.encode(s, "UTF-8") : null;
@@ -260,9 +295,27 @@ public class AttributesFormat extends Format {
                     throw new AssertionError(e);
                 }
             }
+        },
+        rnd {
+            @Override
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
+                return TagUtils.toHexString(ThreadLocalRandom.current().nextInt());
+            }
+        },
+        uuid {
+            @Override
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
+                return UUID.randomUUID();
+            }
+        },
+        uid {
+            @Override
+            Object toArg(Attributes attrs, int tag, int index, int offset) {
+                return UIDUtils.createUID();
+            }
         };
 
-        abstract Object toArg(Attributes attrs, int tag, int index);
+        abstract Object toArg(Attributes attrs, int tag, int index, int offset);
 
         String getMD5String( String s ) {
             try {
