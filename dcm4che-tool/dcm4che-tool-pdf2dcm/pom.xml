@@ -44,9 +44,8 @@
     <parent>
         <artifactId>dcm4che-tool</artifactId>
         <groupId>org.dcm4che.tool</groupId>
-        <version>5.22.0</version>
-        <relativePath>..</relativePath>
-    </parent>
+        <version>5.26.0</version>
+        </parent>
     <artifactId>dcm4che-tool-pdf2dcm</artifactId>
     <name>dcm4che-tool-pdf2dcm</name>
     <description>PDF to DICOM Converter</description>
@@ -58,13 +57,13 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.dcm4che.tool</groupId>
             <artifactId>dcm4che-tool-common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
         </dependency>
     </dependencies>
 </project>

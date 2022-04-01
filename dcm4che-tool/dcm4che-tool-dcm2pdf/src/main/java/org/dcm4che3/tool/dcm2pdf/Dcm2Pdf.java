@@ -102,6 +102,16 @@ public class Dcm2Pdf {
                 .desc(rb.getString("cda"))
                 .build());
         group.addOption(Option.builder()
+                .longOpt("mtl")
+                .hasArg(false)
+                .desc(rb.getString("mtl"))
+                .build());
+        group.addOption(Option.builder()
+                .longOpt("obj")
+                .hasArg(false)
+                .desc(rb.getString("obj"))
+                .build());
+        group.addOption(Option.builder()
                 .longOpt("stl")
                 .hasArg(false)
                 .desc(rb.getString("stl"))
@@ -113,18 +123,23 @@ public class Dcm2Pdf {
     private void setFileType(CommandLine cl) {
         this.fileType = cl.hasOption("cda")
                 ? FileType.CDA
-                : cl.hasOption("stl")
-                    ? FileType.STL
-                    : FileType.PDF;
+                : cl.hasOption("mtl")
+                    ? FileType.MTL
+                    : cl.hasOption("obj")
+                        ? FileType.OBJ
+                        : cl.hasOption("stl")
+                            ? FileType.STL :  FileType.PDF;
     }
 
     enum FileType {
         PDF(UID.EncapsulatedPDFStorage, ".pdf"),
         CDA(UID.EncapsulatedCDAStorage, ".xml"),
+        MTL(UID.EncapsulatedMTLStorage, ".mtl"),
+        OBJ(UID.EncapsulatedOBJStorage, ".obj"),
         STL(UID.EncapsulatedSTLStorage, ".stl");
 
-        private String cuid;
-        private String ext;
+        private final String cuid;
+        private final String ext;
 
         FileType(String cuid, String ext) {
             this.cuid = cuid;
@@ -156,8 +171,8 @@ public class Dcm2Pdf {
     }
 
     class Dcm2PdfFileVisitor extends SimpleFileVisitor<Path> {
-        private Path srcPath;
-        private Path destPath;
+        private final Path srcPath;
+        private final Path destPath;
 
         Dcm2PdfFileVisitor(Path srcPath, Path destPath) {
             this.srcPath = srcPath;
@@ -189,7 +204,7 @@ public class Dcm2Pdf {
 
     private void convert(Path src, Path dest) {
         try (DicomInputStream dis = new DicomInputStream(src.toFile())) {
-            Attributes attributes = dis.readDataset(-1, -1);
+            Attributes attributes = dis.readDataset();
             String sopCUID = attributes.getString(Tag.SOPClassUID);
             if (!sopCUID.equals(fileType.getCuid())) {
                 LOG.info("DICOM file {} with {} SOP Class cannot be converted to file type {}",
@@ -199,11 +214,10 @@ public class Dcm2Pdf {
 
             FileOutputStream fos = new FileOutputStream(dest.toFile());
             byte[] value = (byte[]) attributes.getValue(Tag.EncapsulatedDocument);
-            if (fileType == FileType.CDA)
-                fos.write(value, 0, value.length - 1);
-            else
-                fos.write(value);
-
+            fos.write(value, 0, value.length - 1);
+            byte lastByte = value[value.length - 1];
+            if (lastByte != 0)
+                fos.write(lastByte);
             System.out.println(MessageFormat.format(rb.getString("converted"), src, dest));
         } catch (Exception e) {
             System.out.println(MessageFormat.format(rb.getString("failed"), src, e.getMessage()));

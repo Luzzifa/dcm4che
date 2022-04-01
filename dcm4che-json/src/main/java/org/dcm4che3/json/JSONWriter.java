@@ -41,19 +41,22 @@ package org.dcm4che3.json;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.EnumMap;
+import java.util.function.LongFunction;
 
+import javax.json.JsonValue;
 import javax.json.stream.JsonGenerator;
 
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.BulkData;
 import org.dcm4che3.data.Fragments;
 import org.dcm4che3.data.PersonName;
-import org.dcm4che3.data.Value;
 import org.dcm4che3.data.PersonName.Group;
 import org.dcm4che3.data.Sequence;
 import org.dcm4che3.data.SpecificCharacterSet;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
+import org.dcm4che3.data.Value;
 import org.dcm4che3.io.DicomInputHandler;
 import org.dcm4che3.io.DicomInputStream;
 import org.dcm4che3.util.Base64;
@@ -63,16 +66,64 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * Allows conversion of DICOM files into JSON format. See <a href="
+ * http://dicom.nema.org/medical/dicom/current/output/html/part18.html#sect_F.2">DICOM JSON Model</a>.
+ *
+ * <p> Implements {@link org.dcm4che3.io.DicomInputHandler} so it can be attached to a
+ * {@link org.dcm4che3.io.DicomInputStream} to produce the JSON while being read. See sample usage below.
+ *
+ * <p> Usage:
+ *
+ * <pre>
+ * <code>
+ * JsonGenerator gen = ...
+ * JSONWriter jsonWriter = new JSONWriter(gen);
+ *
+ * // If you've already read the DICOM file and have Attributes:
+ * jsonWriter.write(attrs);
+ *
+ * // To include the meta information:
+ * gen.writeStartObject();
+ * jsonWriter.writeAttributes(metadata);
+ * jsonWriter.writeAttributes(attributes);
+ * gen.writeEnd();
+ *
+ * // If you have a DicomInputStream:
+ * DicomInputStream ds = ....
+ * dis.setDicomInputHandler(jsonWriter);
+ * dis.readDataset(-1, -1);
+ * gen.flush();
+ * </code>
+ * </pre>
+ *
  * @author Gunter Zeilinger <gunterze@gmail.com>
  *
  */
 public class JSONWriter implements DicomInputHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(JSONWriter.class);
+    private static final int DOUBLE_MAX_BITS = 53;
 
     private final JsonGenerator gen;
-    private final Deque<Boolean> hasItems = new ArrayDeque<Boolean>();
+    private final Deque<Boolean> hasItems = new ArrayDeque<>();
     private String replaceBulkDataURI;
+    private EnumMap<VR, JsonValue.ValueType> jsonTypeByVR = new EnumMap<>(VR.class);
+
+    public void setJsonType(VR vr, JsonValue.ValueType valueType) {
+        jsonTypeByVR.put(requireIS_DS_SV_UV(vr), requireNumberOrString(valueType));
+    }
+
+    private static VR requireIS_DS_SV_UV(VR vr) {
+        if (vr != VR.DS && vr != VR.IS && vr != VR.SV && vr != VR.UV)
+            throw new IllegalArgumentException("vr:" + vr);
+        return vr;
+    }
+
+    private static JsonValue.ValueType requireNumberOrString(JsonValue.ValueType jsonType) {
+        if (jsonType != JsonValue.ValueType.NUMBER && jsonType != JsonValue.ValueType.STRING)
+            throw new IllegalArgumentException("jsonType:" + jsonType);
+        return jsonType;
+    }
 
     public JSONWriter(JsonGenerator gen) {
         this.gen = gen;
@@ -86,23 +137,35 @@ public class JSONWriter implements DicomInputHandler {
         this.replaceBulkDataURI = replaceBulkDataURI;
     }
 
+    /**
+     * Writes the given attributes as a full JSON object. Subsequent calls will generate a new JSON
+     * object.
+     */
     public void write(Attributes attrs) {
-        final SpecificCharacterSet cs = attrs.getSpecificCharacterSet();
         gen.writeStartObject();
-        try {
-            attrs.accept(new Attributes.Visitor(){
+        writeAttributes(attrs);
+        gen.writeEnd();
+    }
 
-                @Override
-                public boolean visit(Attributes attrs, int tag, VR vr, Object value)
-                        throws Exception {
-                     writeAttribute(tag, vr, value, cs, attrs);
-                     return true;
-                }},
-                false);
+    /**
+     * Writes the given attributes to JSON. Can be used to output multiple attributes (e.g. metadata,
+     * attributes) to the same JSON object.
+     */
+    public void writeAttributes(Attributes attrs) {
+        final SpecificCharacterSet cs = attrs.getSpecificCharacterSet();
+        try {
+            attrs.accept(new Attributes.Visitor() {
+                             @Override
+                             public boolean visit(Attributes attrs, int tag, VR vr, Object value)
+                                     throws Exception {
+                                 writeAttribute(tag, vr, value, cs, attrs);
+                                 return true;
+                             }
+                         },
+                    false);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        gen.writeEnd();
     }
 
     private void writeAttribute(int tag, VR vr, Object value,
@@ -176,7 +239,8 @@ public class JSONWriter implements DicomInputHandler {
                 } else {
                     byte[] b = dis.readValue();
                     if (tag == Tag.TransferSyntaxUID
-                            || tag == Tag.SpecificCharacterSet)
+                            || tag == Tag.SpecificCharacterSet
+                            || TagUtils.isPrivateCreator(tag))
                         attrs.setBytes(tag, vr, b);
                     writeValue(vr, b, dis.bigEndian(),
                                 attrs.getSpecificCharacterSet(vr), false);
@@ -218,6 +282,12 @@ public class JSONWriter implements DicomInputHandler {
         case US:
             writeIntValues(vr, val, bigEndian);
             break;
+        case SV:
+            writeLongValues(Long::toString, vr, val, bigEndian);
+            break;
+        case UV:
+            writeLongValues(Long::toUnsignedString, vr, val, bigEndian);
+            break;
         case UL:
             writeUIntValues(vr, val, bigEndian);
             break;
@@ -225,6 +295,7 @@ public class JSONWriter implements DicomInputHandler {
         case OD:
         case OF:
         case OL:
+        case OV:
         case OW:
         case UN:
             writeInlineBinary(vr, (byte[]) val, bigEndian, preserve);
@@ -246,19 +317,22 @@ public class JSONWriter implements DicomInputHandler {
                 gen.writeNull();
             else switch (vr) {
             case DS:
-                try {
-                    gen.write(StringUtils.parseDS(s));
-                } catch (NumberFormatException e) {
-                    LOG.info("illegal DS value: {} - encoded as null", s);
-                    gen.writeNull();
+                if (jsonTypeByVR.get(VR.DS) == JsonValue.ValueType.NUMBER) {
+                   try {
+                        gen.write(StringUtils.parseDS(s));
+                    } catch (NumberFormatException e) {
+                        LOG.info("illegal DS value: {} - encoded as string", s);
+                        gen.write(s);
+                    }
+                } else {
+                    gen.write(s);
                 }
                 break;
             case IS:
-                try {
-                    gen.write(StringUtils.parseIS(s));
-                } catch (NumberFormatException e) {
-                    LOG.info("illegal IS value: {} - encoded as null", s);
-                    gen.writeNull();
+                if (jsonTypeByVR.get(VR.IS) == JsonValue.ValueType.NUMBER) {
+                    writeNumber(s);
+                } else {
+                    gen.write(s);
                 }
                 break;
             case PN:
@@ -269,6 +343,19 @@ public class JSONWriter implements DicomInputHandler {
             }
         }
         gen.writeEnd();
+    }
+
+    private void writeNumber(String s) {
+        try {
+            long l = StringUtils.parseIS(s);
+            if ((l < 0 ? -l : l) >> DOUBLE_MAX_BITS == 0) {
+                gen.write(l);
+                return;
+            }
+        } catch (NumberFormatException e) {
+            LOG.info("illegal IS value: {} - encoded as string", s);
+        }
+        gen.write(s);
     }
 
     private void writeDoubleValues(VR vr, Object val, boolean bigEndian) {
@@ -307,6 +394,21 @@ public class JSONWriter implements DicomInputHandler {
         int vm = vr.vmOf(val);
         for (int i = 0; i < vm; i++) {
             gen.write(vr.toInt(val, bigEndian, i, 0) & 0xffffffffL);
+        }
+        gen.writeEnd();
+    }
+
+    private void writeLongValues(LongFunction<String> toString, VR vr, Object val, boolean bigEndian) {
+        gen.writeStartArray("Value");
+        boolean asString = jsonTypeByVR.get(vr) != JsonValue.ValueType.NUMBER;
+        int vm = vr.vmOf(val);
+        for (int i = 0; i < vm; i++) {
+            long l = vr.toLong(val, bigEndian, i, 0);
+            if (asString || (l < 0 ? (vr == VR.UV || (-l >> DOUBLE_MAX_BITS) > 0) : (l >> DOUBLE_MAX_BITS) > 0)) {
+                gen.write(toString.apply(l));
+            } else {
+                gen.write(l);
+            }
         }
         gen.writeEnd();
     }

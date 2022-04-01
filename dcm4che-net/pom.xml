@@ -42,7 +42,7 @@
   <parent>
     <artifactId>dcm4che-parent</artifactId>
     <groupId>org.dcm4che</groupId>
-    <version>5.22.0</version>
+    <version>5.26.0</version>
   </parent>
   <artifactId>dcm4che-net</artifactId>
   <packaging>bundle</packaging>
@@ -66,10 +66,6 @@
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-log4j12</artifactId>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

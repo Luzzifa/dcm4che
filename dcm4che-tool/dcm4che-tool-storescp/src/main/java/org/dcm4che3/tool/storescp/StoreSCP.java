@@ -40,6 +40,8 @@ package org.dcm4che3.tool.storescp;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
@@ -103,7 +105,7 @@ public class StoreSCP {
                 String cuid = rq.getString(Tag.AffectedSOPClassUID);
                 String iuid = rq.getString(Tag.AffectedSOPInstanceUID);
                 String tsuid = pc.getTransferSyntax();
-                File file = new File(storageDir, iuid + PART_EXT);
+                File file = File.createTempFile(iuid, PART_EXT, storageDir);
                 try {
                     storeTo(as, as.createFileMetaInformation(iuid, cuid, tsuid),
                             data, file);
@@ -159,15 +161,19 @@ public class StoreSCP {
         LOG.info("{}: M-RENAME {} to {}", as, from, dest);
         if (!dest.getParentFile().mkdirs())
             dest.delete();
-        if (!from.renameTo(dest))
-            throw new IOException("Failed to rename " + from + " to " + dest);
+        try {
+            Files.move(from.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            from.delete();
+            throw e;
+        }
     }
 
     private static Attributes parse(File file) throws IOException {
         DicomInputStream in = new DicomInputStream(file);
         try {
             in.setIncludeBulkData(IncludeBulkData.NO);
-            return in.readDataset(-1, Tag.PixelData);
+            return in.readDatasetUntilPixelData();
         } finally {
             SafeClose.close(in);
         }

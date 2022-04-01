@@ -48,6 +48,7 @@ import org.dcm4che3.imageio.codec.mpeg.MPEG2Parser;
 import org.dcm4che3.io.DicomOutputStream;
 import org.dcm4che3.io.SAXReader;
 import org.dcm4che3.tool.common.CLIUtils;
+import org.dcm4che3.util.SafeBuffer;
 import org.dcm4che3.util.StreamUtils;
 import org.dcm4che3.util.UIDUtils;
 import org.xml.sax.SAXException;
@@ -62,6 +63,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.ResourceBundle;
+
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -130,8 +132,7 @@ public class Jpg2Dcm {
         CLIUtils.addCommonOptions(opts);
         opts.addOption(Option.builder("m")
                 .hasArgs()
-                .argName("[seq/]attr=value")
-                .valueSeparator()
+                .argName("[seq.]attr=value")
                 .desc(rb.getString("metadata"))
                 .build());
         opts.addOption(Option.builder("f")
@@ -253,7 +254,7 @@ public class Jpg2Dcm {
         int read;
         while ((read = in.read(bb)) > 0) {
             out.write(buf, 0, read);
-            bb.clear();
+            SafeBuffer.clear(bb);
         }
     }
 

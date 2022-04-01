@@ -53,14 +53,14 @@ import java.net.URL;
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @author Bill Wallace <wayfarer3130@gmail.com>
  */
-public class BulkData implements Value {
+public class BulkData implements Value, Serializable {
 
     public static final int MAGIC_LEN = 0xfbfb;
 
-    private final String uuid;
+    private String uuid;
     private String uri;
     private int uriPathEnd;
-    private final boolean bigEndian;
+    private boolean bigEndian;
     private long offset = 0;
     private int length = -1;
 
@@ -89,25 +89,28 @@ public class BulkData implements Value {
 
     public void setURI(String uri) {
         this.uri = uri;
-        this.uriPathEnd = uri.length();
         this.offset = 0;
         this.length = -1;
-        int pathEnd = uri.indexOf('?');
-        if (pathEnd < 0)
-            return;
-        
-        this.uriPathEnd = pathEnd;
-        if (!uri.startsWith("?offset=", pathEnd))
-            return;
-        
-        int offsetEnd = uri.indexOf("&length=", pathEnd + 8);
-        if (offsetEnd < 0)
+        this.uriPathEnd = 0;
+        if (uri == null)
             return;
 
-        try {
-            this.offset = Integer.parseInt(uri.substring(pathEnd + 8, offsetEnd));
-            this.length = Integer.parseInt(uri.substring(offsetEnd + 8));
-        } catch (NumberFormatException ignore) {}
+        int pathEnd = uri.indexOf('?');
+        if (pathEnd < 0) {
+            this.uriPathEnd = uri.length();
+            return;
+        }
+        
+        this.uriPathEnd = pathEnd;
+        for (String qparam : StringUtils.split(uri.substring(pathEnd + 1), '&')) {
+            try {
+                if (qparam.startsWith("offset=")) {
+                    this.offset = Integer.parseInt(qparam.substring(7));
+                } else if (qparam.startsWith("length=")) {
+                    this.length = Integer.parseInt(qparam.substring(7));
+                }
+            } catch (NumberFormatException ignore) {}
+        }
     }
 
     public boolean bigEndian() {
@@ -215,18 +218,21 @@ public class BulkData implements Value {
         }
     }
 
-    public void serializeTo(ObjectOutputStream oos) throws IOException {
+    private static final long serialVersionUID = -6563845357491618094L;
+
+    private void writeObject(ObjectOutputStream oos) throws IOException {
+        oos.defaultWriteObject();
         oos.writeUTF(StringUtils.maskNull(uuid, ""));
         oos.writeUTF(StringUtils.maskNull(uri, ""));
         oos.writeBoolean(bigEndian);
     }
 
-    public static Value deserializeFrom(ObjectInputStream ois)
-            throws IOException {
-        return new BulkData(
-            StringUtils.maskEmpty(ois.readUTF(), null),
-            StringUtils.maskEmpty(ois.readUTF(), null),
-            ois.readBoolean());
+    private void readObject(ObjectInputStream ois)
+            throws IOException, ClassNotFoundException {
+        ois.defaultReadObject();
+        uuid = StringUtils.maskEmpty(ois.readUTF(), null);
+        setURI(StringUtils.maskEmpty(ois.readUTF(), null));
+        bigEndian = ois.readBoolean();
     }
 
     @Override
@@ -286,5 +292,10 @@ public class BulkData implements Value {
         }
         this.length = (int) longLength;
         this.uri = this.uri.substring(0, this.uriPathEnd)+"?offset="+this.offset+"&length="+this.length;
+    }
+
+    @FunctionalInterface
+    public interface Creator {
+        BulkData create(String uuid, String uri, boolean bigEndian);
     }
 }

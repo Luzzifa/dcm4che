@@ -38,42 +38,24 @@
 
 package org.dcm4che3.tool.common;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.security.GeneralSecurityException;
-import java.text.MessageFormat;
-import java.util.EnumMap;
-import java.util.Properties;
-import java.util.ResourceBundle;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.MissingOptionException;
-import org.apache.commons.cli.Option.Builder;
-import org.apache.commons.cli.OptionGroup;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.ParseException;
-import org.dcm4che3.data.Tag;
-import org.dcm4che3.data.UID;
-import org.dcm4che3.data.Attributes;
-import org.dcm4che3.data.ElementDictionary;
-import org.dcm4che3.data.Sequence;
-import org.dcm4che3.data.VR;
+import org.apache.commons.cli.*;
+import org.dcm4che3.data.*;
 import org.dcm4che3.io.BasicBulkDataDescriptor;
 import org.dcm4che3.io.DicomEncodingOptions;
-import org.dcm4che3.net.ApplicationEntity;
-import org.dcm4che3.net.Connection;
-import org.dcm4che3.net.Device;
-import org.dcm4che3.net.Priority;
-import org.dcm4che3.net.SSLManagerFactory;
+import org.dcm4che3.net.*;
 import org.dcm4che3.net.pdu.AAssociateRQ;
 import org.dcm4che3.net.pdu.UserIdentityRQ;
 import org.dcm4che3.util.SafeClose;
 import org.dcm4che3.util.StreamUtils;
 import org.dcm4che3.util.StringUtils;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.GeneralSecurityException;
+import java.text.MessageFormat;
+import java.util.Properties;
+import java.util.ResourceBundle;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -99,16 +81,6 @@ public class CLIUtils {
                 .build());
     }
 
-    public static void addBindServerOption(Options opts) {
-        opts.addOption(Option.builder("b")
-                .hasArg()
-                .argName("[aet[@ip]:]port")
-                .desc(rb.getString("bind-server"))
-                .longOpt("bind")
-                .build());
-        addRequestTimeoutOption(opts);
-    }
-
     public static void addConnectOption(Options opts) {
         opts.addOption(Option.builder("c")
                 .hasArg()
@@ -122,7 +94,24 @@ public class CLIUtils {
                 .desc(rb.getString("proxy"))
                 .longOpt("proxy")
                 .build());
-        opts.addOption(Option.builder()
+        addUserIdentityOptions(opts);
+        addConnectTimeoutOption(opts);
+        addAcceptTimeoutOption(opts);
+    }
+
+    public static void addBindServerOption(Options opts) {
+        opts.addOption(Option.builder("b")
+                .hasArg()
+                .argName("[aet[@ip]:]port")
+                .desc(rb.getString("bind-server"))
+                .longOpt("bind")
+                .build());
+        addRequestTimeoutOption(opts);
+    }
+
+    private static void addUserIdentityOptions(Options opts) {
+        OptionGroup group = new OptionGroup();
+        group.addOption(Option.builder()
                 .hasArg()
                 .argName("name")
                 .desc(rb.getString("user"))
@@ -130,13 +119,24 @@ public class CLIUtils {
                 .build());
         opts.addOption(Option.builder()
                 .hasArg()
+                .argName("assertion")
+                .desc(rb.getString("user-saml"))
+                .longOpt("user-saml")
+                .build());
+        opts.addOption(Option.builder()
+                .hasArg()
+                .argName("token")
+                .desc(rb.getString("user-jwt"))
+                .longOpt("user-jwt")
+                .build());
+        opts.addOptionGroup(group);
+        opts.addOption(Option.builder()
+                .hasArg()
                 .argName("password")
                 .desc(rb.getString("user-pass"))
                 .longOpt("user-pass")
                 .build());
         opts.addOption(null, "user-rsp", false, rb.getString("user-rsp"));
-        addConnectTimeoutOption(opts);
-        addAcceptTimeoutOption(opts);
     }
 
     public static void addAEOptions(Options opts) {
@@ -412,10 +412,21 @@ public class CLIUtils {
 
         if (cl.hasOption("user"))
             rq.setUserIdentityRQ(cl.hasOption("user-pass")
-                    ? new UserIdentityRQ(cl.getOptionValue("user"),
-                            cl.getOptionValue("user-pass").toCharArray())
-                    : new UserIdentityRQ(cl.getOptionValue("user"),
+                    ? UserIdentityRQ.usernamePasscode(
+                            cl.getOptionValue("user"),
+                            cl.getOptionValue("user-pass").toCharArray(),
+                            cl.hasOption("user-rsp"))
+                    : UserIdentityRQ.username(
+                            cl.getOptionValue("user"),
                             cl.hasOption("user-rsp")));
+        else if (cl.hasOption("user-saml"))
+            rq.setUserIdentityRQ(UserIdentityRQ.saml(
+                    cl.getOptionValue("user-saml"),
+                    cl.hasOption("user-rsp")));
+        else if (cl.hasOption("user-jwt"))
+            rq.setUserIdentityRQ(UserIdentityRQ.jwt(
+                    cl.getOptionValue("user-jwt"),
+                    cl.hasOption("user-rsp")));
     }
 
     public static void configureBind(Connection conn,
@@ -572,12 +583,12 @@ public class CLIUtils {
 
         conn.setTlsNeedClientAuth(!cl.hasOption("tls-noauth"));
 
-        String keyStoreURL = cl.getOptionValue("key-store", "resource:key.jks");
-        String keyStoreType =  cl.getOptionValue("key-store-type", "JKS");
+        String keyStoreURL = cl.getOptionValue("key-store", "resource:key.p12");
+        String keyStoreType =  cl.getOptionValue("key-store-type", "PKCS12");
         String keyStorePass = cl.getOptionValue("key-store-pass", "secret");
         String keyPass = cl.getOptionValue("key-pass", keyStorePass);
-        String trustStoreURL = cl.getOptionValue("trust-store", "resource:cacerts.jks");
-        String trustStoreType =  cl.getOptionValue("trust-store-type", "JKS");
+        String trustStoreURL = cl.getOptionValue("trust-store", "resource:cacerts.p12");
+        String trustStoreType =  cl.getOptionValue("trust-store-type", "PKCS12");
         String trustStorePass = cl.getOptionValue("trust-store-pass", "secret");
 
         Device device = conn.getDevice();
@@ -716,17 +727,17 @@ public class CLIUtils {
     private static String[] IVR_LE_FIRST = {
         UID.ImplicitVRLittleEndian,
         UID.ExplicitVRLittleEndian,
-        UID.ExplicitVRBigEndianRetired
+        UID.ExplicitVRBigEndian
     };
 
     private static String[] EVR_LE_FIRST = {
         UID.ExplicitVRLittleEndian,
-        UID.ExplicitVRBigEndianRetired,
+        UID.ExplicitVRBigEndian,
         UID.ImplicitVRLittleEndian
     };
 
     private static String[] EVR_BE_FIRST = {
-        UID.ExplicitVRBigEndianRetired,
+        UID.ExplicitVRBigEndian,
         UID.ExplicitVRLittleEndian,
         UID.ImplicitVRLittleEndian
     };
@@ -759,7 +770,7 @@ public class CLIUtils {
         int tag = tags[tags.length-1];
         VR vr = ElementDictionary.vrOf(tag,
                 item.getPrivateCreator(tag));
-        if (ss.length == 0)
+        if (ss.length == 0 || ss.length == 1 && ss[0].isEmpty())
             if (vr == VR.SQ)
                 item.newSequence(tag, 1).add(new Attributes(0));
             else
@@ -770,24 +781,30 @@ public class CLIUtils {
 
     public static void addAttributes(Attributes attrs, String[] optVals) {
         if (optVals != null)
-            for (int i = 1; i < optVals.length; i++, i++)
-                addAttributes(attrs,
-                        toTags(
-                                StringUtils.split(optVals[i-1], '/')),
-                                optVals[i]);
+            for (String optVal : optVals) {
+                int delim = optVal.indexOf('=');
+                if (delim < 0) {
+                    addAttributes(attrs,
+                            toTags(StringUtils.split(optVal, '.')));
+                } else {
+                    addAttributes(attrs,
+                            toTags(StringUtils.split(optVal.substring(0, delim), '.')),
+                            optVal.substring(delim + 1));
+                }
+            }
     }
 
     public static void addEmptyAttributes(Attributes attrs, String[] optVals) {
         if (optVals != null)
             for (int i = 0; i < optVals.length; i++)
                 addAttributes(attrs,
-                        toTags(StringUtils.split(optVals[i], '/')));
+                        toTags(StringUtils.split(optVals[i], '.')));
     }
 
     public static void addTagPaths(BasicBulkDataDescriptor desc, String[] optVals) {
         if (optVals != null)
             for (int i = 0; i < optVals.length; i++)
-                desc.addTagPath(toTags(StringUtils.split(optVals[i], '/')));
+                desc.addTagPath(toTags(StringUtils.split(optVals[i], '.')));
     }
 
     public static boolean updateAttributes(Attributes data, Attributes attrs,

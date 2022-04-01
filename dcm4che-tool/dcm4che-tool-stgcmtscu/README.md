@@ -59,12 +59,12 @@ Options:
                                           password by default
     --key-store <file|url>                file path or URL of key store
                                           containing the private key,
-                                          resource:key.jks by default
+                                          resource:key.p12 by default
     --key-store-pass <password>           password for key store
                                           containing the private key,
                                           'secret' by default
     --key-store-type <storetype>          type of key store containing the
-                                          private key, JKS by default
+                                          private key, PKCS12 by default
     --max-ops-invoked <no>                maximum number of operations
                                           this AE may invoke
                                           asynchronously, unlimited by
@@ -205,22 +205,26 @@ Options:
                                           --tls-protocol TLSv1.3
     --trust-store <file|url>              file path of key store
                                           containing trusted certificates,
-                                          resource:cacerts.jks by default
+                                          resource:cacerts.p12 by default
     --trust-store-pass <password>         password for key store with
                                           trusted certificates, 'secret'
                                           by default
     --trust-store-type <storetype>        type of key store with trusted
-                                          certificates, JKS by default
+                                          certificates, PKCS12 by default
     --uid-suffix <suffix>                 specify suffix to be appended to
                                           the Study, Series and SOP
                                           Instance UID of referenced
                                           object(s).
     --user <name>                         negotiate user identity with
                                           specified user name
+    --user-jwt <token>                    negotiate user identity with
+                                          specified JSON Web Token
     --user-pass <password>                negotiate user identity with
                                           specified password
     --user-rsp                            negotiate user identity with
                                           positive response requested
+    --user-saml <assertion>               negotiate user identity with
+                                          specified SAML Assertion
  -V,--version                             output version information and
                                           exit
 -

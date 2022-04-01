@@ -59,6 +59,7 @@ import org.dcm4che3.net.pdu.CommonExtendedNegotiation;
 import org.dcm4che3.net.pdu.PresentationContext;
 import org.dcm4che3.net.pdu.RoleSelection;
 import org.dcm4che3.util.IntHashMap;
+import org.dcm4che3.util.ReverseDNS;
 import org.dcm4che3.util.SafeClose;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +88,7 @@ public class Association {
     private final OutputStream out;
     private final PDUEncoder encoder;
     private PDUDecoder decoder;
-    private State state;
+    private volatile State state;
     private AAssociateRQ rq;
     private AAssociateAC ac;
     private IOException ex;
@@ -173,6 +174,14 @@ public class Association {
 
     public final Socket getSocket() {
         return sock;
+    }
+
+    public String getLocalHostName() {
+        return ReverseDNS.hostNameOf(sock.getLocalAddress());
+    }
+
+    public String getRemoteHostName() {
+        return ReverseDNS.hostNameOf(sock.getInetAddress());
     }
 
     public final Connection getConnection() {
@@ -331,12 +340,7 @@ public class Association {
     }
 
     void abort(AAbort aa) {
-        try {
-            state.write(this, aa);
-        } catch (IOException e) {
-            // already handled by onIOException()
-            // do not bother user about
-        }
+        state.write(this, aa);
     }
 
     private synchronized void closeSocket() {
@@ -379,7 +383,7 @@ public class Association {
         closeSocket();
     }
 
-    void write(AAbort aa) throws IOException  {
+    void write(AAbort aa)  {
         LOG.info("{} << {}", name, aa.toString());
         encoder.write(aa);
         ex = aa;
@@ -657,7 +661,7 @@ public class Association {
         state.onAReleaseRQ(this);
     }
 
-    void handleAReleaseRQ() throws IOException {
+    void handleAReleaseRQ() {
         if (decoder.isPendingPDV()) {
             LOG.info("{}: unexpected A-RELEASE-RQ after P-DATA-TF with pending PDV", this);
             abort();
@@ -680,7 +684,7 @@ public class Association {
         }
     }
 
-    void handleAReleaseRQCollision() throws IOException {
+    void handleAReleaseRQCollision() {
         if (isRequestor()) {
             enterState(State.Sta9);
             LOG.info("{} << A-RELEASE-RP", name);
@@ -697,11 +701,11 @@ public class Association {
         state.onAReleaseRP(this);
     }
 
-    void handleAReleaseRP() throws IOException {
+    void handleAReleaseRP() {
         closeSocket();
     }
 
-   void handleAReleaseRPCollision() throws IOException {
+   void handleAReleaseRPCollision() {
         enterState(State.Sta12);
         LOG.info("{} << A-RELEASE-RP", name);
         encoder.writeAReleaseRP();
@@ -803,6 +807,7 @@ public class Association {
     private DimseRSPHandler removeDimseRSPHandler(int msgId) {
         synchronized (rspHandlerForMsgId ) {
             DimseRSPHandler tmp = rspHandlerForMsgId.remove(msgId);
+            tmp.stopTimeout(this);
             rspHandlerForMsgId.notifyAll();
             return tmp;
         }
@@ -1042,7 +1047,7 @@ public class Association {
     }
 
     public DimseRSP cecho() throws IOException, InterruptedException {
-        return cecho(UID.VerificationSOPClass);
+        return cecho(UID.Verification);
     }
 
     public DimseRSP cecho(String cuid) throws IOException, InterruptedException {
@@ -1308,6 +1313,10 @@ public class Association {
 
     public EnumSet<QueryOption> getQueryOptionsFor(String cuid) {
         return QueryOption.toOptions(ac.getExtNegotiationFor(cuid));
+    }
+
+    public EnumSet<QueryOption> getRequestedQueryOptionsFor(String cuid) {
+        return QueryOption.toOptions(rq.getExtNegotiationFor(cuid));
     }
 }
 

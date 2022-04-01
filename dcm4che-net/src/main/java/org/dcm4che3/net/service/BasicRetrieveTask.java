@@ -239,7 +239,8 @@ public class BasicRetrieveTask<T extends InstanceLocator> implements RetrieveTas
 
     protected void releaseStoreAssociation(Association storeas) {
         try {
-            storeas.release();
+            if (storeas.isReadyForDataTransfer())
+                storeas.release();
         } catch (IOException e) {
             LOG.warn("{}: failed to release association to {}",
                     rqas, storeas.getRemoteAET(), e);
@@ -327,7 +328,7 @@ public class BasicRetrieveTask<T extends InstanceLocator> implements RetrieveTas
             data = new Attributes(1);
             String[] iuids = new String[failed.size()];
             for (int i = 0; i < iuids.length; i++) {
-                iuids[i] = failed.get(0).iuid;
+                iuids[i] = failed.get(i).iuid;
             }
             data.setString(Tag.FailedSOPInstanceUIDList, VR.UI, iuids);
         }

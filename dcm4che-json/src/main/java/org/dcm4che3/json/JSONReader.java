@@ -40,6 +40,7 @@ package org.dcm4che3.json;
 
 import org.dcm4che3.data.*;
 import org.dcm4che3.data.PersonName.Group;
+import org.dcm4che3.io.BulkDataCreator;
 import org.dcm4che3.util.Base64;
 import org.dcm4che3.util.TagUtils;
 import org.slf4j.Logger;
@@ -53,6 +54,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+import java.util.function.ToLongFunction;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -70,6 +75,7 @@ public class JSONReader {
 
     private final JsonParser parser;
     private boolean skipBulkDataURI;
+    private BulkData.Creator bulkDataCreator = BulkData::new;
     private Attributes fmi;
     private Event event;
     private String s;
@@ -78,7 +84,7 @@ public class JSONReader {
     private final EnumMap<Group, String> pnGroups = new EnumMap<>(PersonName.Group.class);
 
     public JSONReader(JsonParser parser) {
-        this.parser = parser;
+        this.parser = Objects.requireNonNull(parser);
     }
 
     public boolean isSkipBulkDataURI() {
@@ -87,6 +93,10 @@ public class JSONReader {
 
     public void setSkipBulkDataURI(boolean skipBulkDataURI) {
         this.skipBulkDataURI = skipBulkDataURI;
+    }
+
+    public void setBulkDataCreator(BulkData.Creator bulkDataCreator ) {
+        this.bulkDataCreator = Objects.requireNonNull(bulkDataCreator);
     }
 
     public Attributes getFileMetaInformation() {
@@ -171,7 +181,8 @@ public class JSONReader {
                     try {
                         el.vr = VR.valueOf(valueString());
                     } catch (IllegalArgumentException e) {
-                        throw new JsonParsingException("Invalid vr: " + getString(), parser.getLocation());
+                        el.vr = ElementDictionary.getStandardElementDictionary().vrOf(tag);
+                        LOG.info("Invalid vr: '{}' at {} - treat as '{}'",getString(), parser.getLocation(), el.vr);
                     }
                     break;
                 case "Value":
@@ -193,14 +204,15 @@ public class JSONReader {
             }
         }
         expect(JsonParser.Event.END_OBJECT);
-        if (el.vr == null)
-            throw new JsonParsingException("Missing property: vr", parser.getLocation());
-
+        if (el.vr == null) {
+            el.vr = ElementDictionary.getStandardElementDictionary().vrOf(tag);
+            LOG.info("Missing property: vr at {} - treat as '{}'", parser.getLocation(), el.vr);
+        }
         if (el.isEmpty())
             attrs.setNull(tag, el.vr);
         else if (el.bulkDataURI != null) {
             if (!skipBulkDataURI)
-                attrs.setValue(tag, el.vr, new BulkData(null, el.bulkDataURI, false));
+                attrs.setValue(tag, el.vr, bulkDataCreator.create(null, el.bulkDataURI, false));
         } else switch (el.vr) {
             case AE:
             case AS:
@@ -232,6 +244,12 @@ public class JSONReader {
             case US:
                 attrs.setInt(tag, el.vr, el.toInts());
                 break;
+            case SV:
+                attrs.setLong(tag, el.vr, el.toLongs(Long::parseLong));
+                break;
+            case UV:
+                attrs.setLong(tag, el.vr, el.toLongs(Long::parseUnsignedLong));
+                break;
             case SQ:
                 el.toItems(attrs.newSequence(tag, el.values.size()));
                 break;
@@ -239,6 +257,7 @@ public class JSONReader {
             case OD:
             case OF:
             case OL:
+            case OV:
             case OW:
             case UN:
                 if (el.bytes != null)
@@ -251,6 +270,11 @@ public class JSONReader {
     private List<Object> readValues() {
         ArrayList<Object> list = new ArrayList<>();
         next();
+        if( this.event == Event.VALUE_STRING ) {
+            LOG.info("Missing value array at {} - treat as single value", parser.getLocation());
+            list.add(getString());
+            return list;
+        }
         expect(Event.START_ARRAY);
         while (next() != Event.END_ARRAY) {
             switch (event) {
@@ -418,6 +442,18 @@ public class JSONReader {
                 is[i] = ((Number) values.get(i)).intValue();
             }
             return is;
+        }
+
+        long[] toLongs(ToLongFunction<String> parse) {
+            long[] ls = new long[values.size()];
+            for (int i = 0; i < ls.length; i++) {
+                ls[i] = longValueOf(parse, values.get(i));
+            }
+            return ls;
+        }
+
+        private long longValueOf(ToLongFunction<String> string2long, Object o) {
+            return o instanceof Number ? ((Number) o).longValue() : string2long.applyAsLong((String) o);
         }
 
         void toItems(Sequence seq) {

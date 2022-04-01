@@ -39,6 +39,7 @@
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
   <xsl:template name="uidsEx">
+    <uid value="1.2.40.0.13.1.5.1.4.1.1.104.1" keyword="PrivateDcm4cheEncapsulatedGenozipStorage" type="SOPClass">Private Dcm4che Encapsulated Genozip Storage</uid>
     <uid value="1.2.124.113532.3500.7" keyword="PrivateAgfaBasicAttributePresentationState" type="SOPClass">Private Agfa Basic Attribute Presentation State</uid>
     <uid value="1.2.124.113532.3500.8.1" keyword="PrivateAgfaArrivalTransaction" type="SOPClass">Private Agfa Arrival Transaction</uid>
     <uid value="1.2.124.113532.3500.8.2" keyword="PrivateAgfaDictationTransaction" type="SOPClass">Private Agfa Dictation Transaction</uid>
@@ -96,7 +97,7 @@
     <uid value="1.3.46.670589.11.0.0.12.2" keyword="PrivatePhilipsMRSeriesDataStorage" type="SOPClass">Private Philips MR Series Data Storage</uid>
     <uid value="1.3.46.670589.11.0.0.12.3" keyword="PrivatePhilipsMRColorImageStorage" type="SOPClass">Private Philips MR Color Image Storage</uid>
     <uid value="1.3.46.670589.11.0.0.12.4" keyword="PrivatePhilipsMRExamcardStorage" type="SOPClass">Private Philips MR Examcard Storage</uid>
-    <uid value="2.16.840.1.114033.5.1.4.1.1.130" keyword="PrivatePMODMultiframeImageStorage" type="SOPClass">Private PMOD Multi-frame Image Storage</uid>
+    <uid value="2.16.840.1.114033.5.1.4.1.1.130" keyword="PrivatePMODMultiFrameImageStorage" type="SOPClass">Private PMOD Multi-frame Image Storage</uid>
   </xsl:template>
 
 </xsl:stylesheet>

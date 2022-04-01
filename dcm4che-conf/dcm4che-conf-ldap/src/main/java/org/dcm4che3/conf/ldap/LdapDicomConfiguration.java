@@ -38,32 +38,23 @@
 
 package org.dcm4che3.conf.ldap;
 
-import java.io.ByteArrayInputStream;
-import java.security.cert.CertificateEncodingException;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
-import java.util.*;
-
-import javax.naming.*;
-import javax.naming.directory.Attribute;
-import javax.naming.directory.Attributes;
-import javax.naming.directory.BasicAttribute;
-import javax.naming.directory.BasicAttributes;
-import javax.naming.directory.DirContext;
-import javax.naming.directory.ModificationItem;
-import javax.naming.directory.SearchControls;
-import javax.naming.directory.SearchResult;
-
-import org.dcm4che3.conf.api.ConfigurationChanges;
-import org.dcm4che3.conf.api.*;
 import org.dcm4che3.conf.api.ConfigurationException;
+import org.dcm4che3.conf.api.*;
 import org.dcm4che3.io.BasicBulkDataDescriptor;
 import org.dcm4che3.net.*;
 import org.dcm4che3.net.Connection.Protocol;
 import org.dcm4che3.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.naming.*;
+import javax.naming.directory.*;
+import java.io.ByteArrayInputStream;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -851,18 +842,26 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
 
     private void markForUnregister(String deviceDN, List<String> dns)
             throws NamingException, ConfigurationException {
-        NamingEnumeration<SearchResult> ne =
+        NamingEnumeration<SearchResult> aets =
                 search(deviceDN, "(objectclass=dicomNetworkAE)", StringUtils.EMPTY_STRING);
         try {
-            while (ne.hasMore()) {
-                String rdn = ne.next().getName();
+            while (aets.hasMore()) {
+                String rdn = aets.next().getName();
                 if (!rdn.equals("dicomAETitle=*"))
                     dns.add(rdn + ',' + aetsRegistryDN);
-                if (!rdn.equals("dcmWebAppName=*"))
-                    dns.add(rdn + ',' + webAppsRegistryDN);
             }
         } finally {
-            LdapUtils.safeClose(ne);
+            LdapUtils.safeClose(aets);
+        }
+        NamingEnumeration<SearchResult> webApps =
+                search(deviceDN, "(objectclass=dcmWebApp)", StringUtils.EMPTY_STRING);
+        try {
+            while (webApps.hasMore()) {
+                String rdn = webApps.next().getName();
+                dns.add(rdn + ',' + webAppsRegistryDN);
+            }
+        } finally {
+            LdapUtils.safeClose(webApps);
         }
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.markForUnregister(deviceDN, dns);
@@ -1077,6 +1076,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 conn.isRetrieveTimeoutTotal(), false);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmIdleTimeout",
                 conn.getIdleTimeout(), Connection.NO_TIMEOUT);
+        LdapUtils.storeNotDef(ldapObj, attrs, "dcmAATimeout",
+                conn.getAbortTimeout(), Connection.DEF_ABORT_TIMEOUT);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmTCPCloseDelay",
                 conn.getSocketCloseDelay(), Connection.DEF_SOCKETDELAY);
         LdapUtils.storeNotDef(ldapObj, attrs, "dcmTCPSendBufferSize",
@@ -1125,6 +1126,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         LdapUtils.storeNotNullOrDef(ldapObj, attrs, "hl7ApplicationName", ae.getHl7ApplicationName(), null);
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmAcceptedCallingAETitle", ae.getAcceptedCallingAETitles());
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmOtherAETitle", ae.getOtherAETitles());
+        LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmNoAsyncModeCalledAETitle", ae.getNoAsyncModeCalledAETitles());
         LdapUtils.storeNotEmpty(ldapObj, attrs, "dcmMasqueradeCallingAETitle", ae.getMasqueradeCallingAETitles());
         for (LdapDicomConfigurationExtension ext : extensions)
             ext.storeTo(ldapObj, ae, attrs);
@@ -1553,6 +1555,8 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         conn.setRetrieveTimeoutTotal(LdapUtils.booleanValue(attrs.get("dcmRetrieveTimeoutTotal"), false));
         conn.setIdleTimeout(LdapUtils.intValue(attrs.get("dcmIdleTimeout"),
                 Connection.NO_TIMEOUT));
+        conn.setAbortTimeout(LdapUtils.intValue(attrs.get("dcmAATimeout"),
+                Connection.DEF_ABORT_TIMEOUT));
         conn.setSocketCloseDelay(LdapUtils.intValue(attrs.get("dcmTCPCloseDelay"),
                 Connection.DEF_SOCKETDELAY));
         conn.setSendBufferSize(LdapUtils.intValue(attrs.get("dcmTCPSendBufferSize"),
@@ -1619,6 +1623,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         ae.setPreferredTransferSyntaxes(LdapUtils.removeOrdinalPrefix(
                 LdapUtils.stringArray(attrs.get("dcmPreferredTransferSyntax"))));
         ae.setOtherAETitles(LdapUtils.stringArray(attrs.get("dcmOtherAETitle")));
+        ae.setNoAsyncModeCalledAETitles(LdapUtils.stringArray(attrs.get("dcmNoAsyncModeCalledAETitle")));
         ae.setMasqueradeCallingAETitles(LdapUtils.stringArray(attrs.get("dcmMasqueradeCallingAETitle")));
         ae.setHl7ApplicationName(LdapUtils.stringValue(attrs.get("hl7ApplicationName"), null));
         for (LdapDicomConfigurationExtension ext : extensions)
@@ -1913,6 +1918,10 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
                 a.getIdleTimeout(),
                 b.getIdleTimeout(),
                 Connection.NO_TIMEOUT);
+        LdapUtils.storeDiff(ldapObj, mods, "dcmAATimeout",
+                a.getAbortTimeout(),
+                b.getAbortTimeout(),
+                Connection.DEF_ABORT_TIMEOUT);
         LdapUtils.storeDiff(ldapObj, mods, "dcmTCPCloseDelay",
                 a.getSocketCloseDelay(),
                 b.getSocketCloseDelay(),
@@ -2015,6 +2024,9 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
         LdapUtils.storeDiff(ldapObj, mods, "dcmOtherAETitle",
                 a.getOtherAETitles(),
                 b.getOtherAETitles());
+        LdapUtils.storeDiff(ldapObj, mods, "dcmNoAsyncModeCalledAETitle",
+                a.getNoAsyncModeCalledAETitles(),
+                b.getNoAsyncModeCalledAETitles());
         LdapUtils.storeDiff(ldapObj, mods, "dcmMasqueradeCallingAETitle",
                 a.getMasqueradeCallingAETitles(),
                 b.getMasqueradeCallingAETitles());
@@ -2468,7 +2480,7 @@ public final class LdapDicomConfiguration implements DicomConfiguration {
             if (prev == null) {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.C);
-                createSubcontext(dn, storeTo(ldapObj, prev, new BasicAttributes(true)));
+                createSubcontext(dn, storeTo(ldapObj, entry.getValue(), new BasicAttributes(true)));
             } else {
                 ConfigurationChanges.ModifiedObject ldapObj =
                         ConfigurationChanges.addModifiedObject(diffs, dn, ConfigurationChanges.ChangeType.U);

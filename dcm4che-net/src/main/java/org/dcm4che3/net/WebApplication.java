@@ -61,12 +61,16 @@ public class WebApplication {
         QIDO_COUNT,
         DCM4CHEE_ARC,
         DCM4CHEE_ARC_AET,
+        DCM4CHEE_ARC_AET_DIFF,
         PAM,
         REJECT,
         MOVE,
         MOVE_MATCHING,
+        UPS_MATCHING,
         ELASTICSEARCH,
-        DCM4CHEE_ARC_AET_DIFF
+        XDS_RS,
+        AGFA_BLOB,
+        J4C_ROUTER
     }
 
     private Device device;
@@ -272,12 +276,11 @@ public class WebApplication {
     @Override
     public String toString() {
         return "WebApplication[name=" + applicationName
-                + ",classes=" + serviceClasses
+                + ",serviceClasses=" + serviceClasses
                 + ",path=" + servicePath
                 + ",aet=" + aeTitle
                 + ",applicationClusters=" + Arrays.toString(applicationClusters)
                 + ",keycloakClientID=" + keycloakClientID
-                + ",serviceClasses=" + serviceClasses
                 + ",properties=" + properties
                 + ",installed=" + installed
                 + ']';

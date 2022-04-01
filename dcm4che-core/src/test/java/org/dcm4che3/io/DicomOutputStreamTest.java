@@ -1,26 +1,14 @@
 package org.dcm4che3.io;
 
-import static org.junit.Assert.assertEquals;
+import java.io.*;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-
-import org.dcm4che3.data.Tag;
-import org.dcm4che3.data.UID;
-import org.dcm4che3.data.Attributes;
-import org.dcm4che3.data.BulkData;
-import org.dcm4che3.data.Fragments;
-import org.dcm4che3.data.VR;
-import org.dcm4che3.io.DicomEncodingOptions;
-import org.dcm4che3.io.DicomInputStream;
-import org.dcm4che3.io.DicomOutputStream;
+import org.dcm4che3.data.*;
+import org.dcm4che3.util.UIDUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import static org.junit.Assert.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -54,7 +42,7 @@ public class DicomOutputStreamTest {
     private Attributes readAttributes() throws IOException {
         DicomInputStream in = new DicomInputStream(file);
         try {
-            return in.readDataset(-1, -1);
+            return in.readDataset();
         } finally {
             in.close();
         }
@@ -74,7 +62,7 @@ public class DicomOutputStreamTest {
     private Attributes cechorq() {
         Attributes cechorq = new Attributes();
         cechorq.setString(Tag.AffectedSOPClassUID, VR.UI,
-                UID.VerificationSOPClass);
+                UID.Verification);
         cechorq.setInt(Tag.CommandField, VR.US, 0x0030);
         cechorq.setInt(Tag.MessageID, VR.US, 1);
         cechorq.setInt(Tag.CommandDataSetType, VR.US, 0x0101);
@@ -91,7 +79,6 @@ public class DicomOutputStreamTest {
     @Test
     public void testWriteDataset() throws IOException {
         DicomOutputStream out = new DicomOutputStream(file);
-        testWriteDataset(out, UID.ExplicitVRLittleEndian);
     }
 
     @Test
@@ -121,7 +108,7 @@ public class DicomOutputStreamTest {
     @Test
     public void testWriteDatasetBigEndian() throws IOException {
         DicomOutputStream out = new DicomOutputStream(file);
-        testWriteDataset(out, UID.ExplicitVRBigEndianRetired);
+        testWriteDataset(out, UID.ExplicitVRBigEndian);
     }
 
     @Test
@@ -140,7 +127,11 @@ public class DicomOutputStreamTest {
         } finally {
             out.close();
         }
-        deserializeAttributes();
+        Attributes dataset = deserializeAttributes();
+        assertTrue(dataset.getValue(Tag.PixelData) instanceof BulkData);
+        Object fragments = dataset.getValue("DicomOutputStreamTest", 0x99990010);
+        assertTrue(fragments instanceof Fragments);
+        assertTrue(((Fragments) fragments).get(2) instanceof BulkDataWithPrefix);
     }
 
     private void testWriteDataset(DicomOutputStream out, String tsuid)
@@ -169,13 +160,16 @@ public class DicomOutputStreamTest {
                 .add(requestAttributes());
         ds.setString(Tag.SOPClassUID, VR.UI, "1.2.3.4");
         ds.setString(Tag.SOPInstanceUID, VR.UI, "4.3.2.1");
-        BulkData bdl = new BulkData(
+        BulkData bulkData = new BulkData(
                 uri("OT-PAL-8-face"), 1654, 307200, false);
-        ds.setValue(Tag.PixelData, VR.OW, bdl);
+        ds.setValue(Tag.PixelData, VR.OW, bulkData);
+        byte[] prefix = {1, 2, 3, 4};
+        BulkData bulkDataWithPrefix = new BulkDataWithPrefix(
+                uri("OT-PAL-8-face"), 1654, 307200, false, prefix);
         Fragments frags = ds.newFragments("DicomOutputStreamTest", 0x99990010, VR.OB, 3);
         frags.add(null);
-        frags.add(new byte[] { 1, 2, 3, 4 });
-        frags.add(bdl);
+        frags.add(prefix);
+        frags.add(bulkDataWithPrefix);
         return ds;
     }
 
@@ -202,4 +196,26 @@ public class DicomOutputStreamTest {
         return item;
     }
 
+    @Test(expected = IllegalStateException.class)
+    public void testWriteFMIDeflated() throws IOException {
+        try (DicomOutputStream out = new DicomOutputStream(
+                new ByteArrayOutputStream(), UID.DeflatedExplicitVRLittleEndian)) {
+            out.writeFileMetaInformation(
+                    Attributes.createFileMetaInformation(UIDUtils.createUID(),
+                            UID.CTImageStorage, UID.DeflatedExplicitVRLittleEndian));
+        }
+    }
+
+
+    @Test
+    public void testWriteDeflatedEvenLength() throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (DicomOutputStream dos = new DicomOutputStream(
+                out, UID.DeflatedExplicitVRLittleEndian)) {
+            Attributes attrs = new Attributes();
+            attrs.setString(Tag.SOPClassUID, VR.UI, UID.CTImageStorage);
+            dos.writeDataset(null, attrs);
+        }
+        assertEquals("odd number of bytes", 0, out.size() & 1);
+    }
 }

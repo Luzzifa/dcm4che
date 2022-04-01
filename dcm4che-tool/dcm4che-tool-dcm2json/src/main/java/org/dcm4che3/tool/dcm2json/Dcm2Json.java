@@ -38,24 +38,24 @@
 
 package org.dcm4che3.tool.dcm2json;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.util.*;
-
-import javax.json.Json;
-import javax.json.stream.JsonGenerator;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.OptionGroup;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.ParseException;
+import org.apache.commons.cli.*;
+import org.dcm4che3.data.VR;
 import org.dcm4che3.io.BasicBulkDataDescriptor;
 import org.dcm4che3.io.DicomInputStream;
 import org.dcm4che3.io.DicomInputStream.IncludeBulkData;
 import org.dcm4che3.json.JSONWriter;
 import org.dcm4che3.tool.common.CLIUtils;
+
+import javax.json.Json;
+import javax.json.JsonValue;
+import javax.json.stream.JsonGenerator;
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.ResourceBundle;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -72,9 +72,14 @@ public class Dcm2Json {
     private String blkFileSuffix;
     private File blkDirectory;
     private BasicBulkDataDescriptor bulkDataDescriptor = new BasicBulkDataDescriptor();
+    private boolean encodeAsNumber;
 
     public final void setIndent(boolean indent) {
         this.indent = indent;
+    }
+
+    public final void setEncodeAsNumber(boolean encodeAsNumber) {
+        this.encodeAsNumber = encodeAsNumber;
     }
 
     public final void setIncludeBulkData(IncludeBulkData includeBulkData) {
@@ -110,6 +115,7 @@ public class Dcm2Json {
         Options opts = new Options();
         CLIUtils.addCommonOptions(opts);
         opts.addOption("I", "indent", false, rb.getString("indent"));
+        opts.addOption("N", "encode-as-number", false, rb.getString("encode-as-number"));
         addBulkdataOptions(opts);
 
         return CLIUtils.parseComandLine(args, opts, rb, Dcm2Json.class);
@@ -143,7 +149,7 @@ public class Dcm2Json {
                 .longOpt("blk-file-suffix")
                 .hasArg()
                 .argName("suffix")
-                .desc(rb.getString("blk-file-dir"))
+                .desc(rb.getString("blk-file-suffix"))
                 .build());
         opts.addOption("c", "cat-blk-files", false,
                 rb.getString("cat-blk-files"));
@@ -152,7 +158,7 @@ public class Dcm2Json {
         opts.addOption(Option.builder(null)
                 .longOpt("blk")
                 .hasArgs()
-                .argName("[seq/]attr")
+                .argName("[seq.]attr")
                 .desc(rb.getString("blk"))
                 .build());
         opts.addOption(Option.builder(null)
@@ -169,6 +175,7 @@ public class Dcm2Json {
             CommandLine cl = parseComandLine(args);
             Dcm2Json main = new Dcm2Json();
             main.setIndent(cl.hasOption("I"));
+            main.setEncodeAsNumber(cl.hasOption("N"));
             configureBulkdata(main, cl);
             String fname = fname(cl.getArgList());
             if (fname.equals("-")) {
@@ -241,8 +248,14 @@ public class Dcm2Json {
         dis.setConcatenateBulkDataFiles(catBlkFiles);
         JsonGenerator jsonGen = createGenerator(System.out);
         JSONWriter jsonWriter = new JSONWriter(jsonGen);
+        if (encodeAsNumber) {
+            jsonWriter.setJsonType(VR.DS, JsonValue.ValueType.NUMBER);
+            jsonWriter.setJsonType(VR.IS, JsonValue.ValueType.NUMBER);
+            jsonWriter.setJsonType(VR.SV, JsonValue.ValueType.NUMBER);
+            jsonWriter.setJsonType(VR.UV, JsonValue.ValueType.NUMBER);
+        }
         dis.setDicomInputHandler(jsonWriter);
-        dis.readDataset(-1, -1);
+        dis.readDataset();
         jsonGen.flush();
     }
 

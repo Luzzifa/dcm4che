@@ -38,15 +38,10 @@
 
 package org.dcm4che3.net.audit;
 
-import java.util.List;
-
-import org.dcm4che3.audit.ActiveParticipant;
-import org.dcm4che3.audit.AuditMessage;
-import org.dcm4che3.audit.EventID;
-import org.dcm4che3.audit.EventIdentification;
-import org.dcm4che3.audit.EventTypeCode;
-import org.dcm4che3.audit.RoleIDCode;
+import org.dcm4che3.audit.*;
 import org.dcm4che3.data.Code;
+
+import java.util.List;
 
 /**
  * Specifies criteria for {@link EventIdentification} and optional also for
@@ -72,13 +67,16 @@ public class AuditSuppressCriteria {
     private String commonName;
     private EventID[] eventIDs = {};
     private EventTypeCode[] eventTypeCodes = {};
-    private String eventActionCodes[] = {};
+    private String[] eventActionCodes = {};
     private String[] eventOutcomeIndicators = {};
     private String[] userIDs = {};
     private String[] alternativeUserIDs = {};
     private RoleIDCode[] roleIDCodes = {};
     private String[] networkAccessPointIDs = {};
     private Boolean userIsRequestor;
+    private String[] participantObjectTypeCodes = {};
+    private String[] participantObjectTypeCodeRoles = {};
+    private String[] participantObjectDataLifeCycle = {};
 
     public AuditSuppressCriteria(String cn) {
         setCommonName(cn);
@@ -295,17 +293,44 @@ public class AuditSuppressCriteria {
         this.userIsRequestor = userIsRequestor;
     }
 
+    public String[] getParticipantObjectTypeCodes() {
+        return participantObjectTypeCodes;
+    }
+
+    public void setParticipantObjectTypeCodes(String[] participantObjectTypeCodes) {
+        this.participantObjectTypeCodes = participantObjectTypeCodes;
+    }
+
+    public String[] getParticipantObjectTypeCodeRoles() {
+        return participantObjectTypeCodeRoles;
+    }
+
+    public void setParticipantObjectTypeCodeRoles(String[] participantObjectTypeCodeRoles) {
+        this.participantObjectTypeCodeRoles = participantObjectTypeCodeRoles;
+    }
+
+    public String[] getParticipantObjectDataLifeCycle() {
+        return participantObjectDataLifeCycle;
+    }
+
+    public void setParticipantObjectDataLifeCycle(String[] participantObjectDataLifeCycle) {
+        this.participantObjectDataLifeCycle = participantObjectDataLifeCycle;
+    }
+
     public boolean match(AuditMessage msg) {
-        if (!match(msg.getEventIdentification()))
+        if (!matchEventIdentification(msg.getEventIdentification()))
             return false;
 
-        if (!match(msg.getActiveParticipant()))
+        if (!matchActiveParticipants(msg.getActiveParticipant()))
+            return false;
+
+        if (!matchParticipantObjectIdentifications(msg.getParticipantObjectIdentification()))
             return false;
 
         return true;
     }
 
-    private boolean match(EventIdentification eventIdentification) {
+    private boolean matchEventIdentification(EventIdentification eventIdentification) {
         if (!matchEventID(eventIdentification.getEventID()))
             return false;
 
@@ -356,18 +381,18 @@ public class AuditSuppressCriteria {
         return false;
     }
 
-    private boolean match(List<ActiveParticipant> aps) {
+    private boolean matchActiveParticipants(List<ActiveParticipant> aps) {
         if (matchAnyActiveParticipant())
             return true;
 
         for (ActiveParticipant ap : aps) {
-            if (match(ap))
+            if (matchActiveParticipant(ap))
                 return true;
         }
         return false;
     }
 
-    private boolean match(ActiveParticipant ap) {
+    private boolean matchActiveParticipant(ActiveParticipant ap) {
         if (!isEmptyOrContains(userIDs, ap.getUserID()))
             return false;
 
@@ -382,8 +407,7 @@ public class AuditSuppressCriteria {
         if (!matchRoleIDCodes(ap.getRoleIDCode()))
             return false;
 
-        return userIsRequestor == null
-                || ap.isUserIsRequestor() == userIsRequestor.booleanValue();
+        return userIsRequestor == null || ap.isUserIsRequestor() == userIsRequestor;
     }
 
     private boolean matchRoleIDCodes(List<RoleIDCode> list) {
@@ -408,6 +432,39 @@ public class AuditSuppressCriteria {
                 && roleIDCodes.length == 0
                 && networkAccessPointIDs.length == 0
                 && userIsRequestor == null;
+    }
+
+    private boolean matchParticipantObjectIdentifications(List<ParticipantObjectIdentification> pois) {
+        if (matchAnyParticipantObjectIdentification())
+            return true;
+
+        for (ParticipantObjectIdentification poi : pois) {
+            if (matchParticipantObjectIdentification(poi))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean matchParticipantObjectIdentification(ParticipantObjectIdentification poi) {
+        if (!isEmptyOrContains(participantObjectTypeCodes,
+                poi.getParticipantObjectTypeCode()))
+            return false;
+
+        if (!isEmptyOrContains(participantObjectTypeCodeRoles,
+                poi.getParticipantObjectTypeCodeRole()))
+            return false;
+
+        if (!isEmptyOrContains(participantObjectDataLifeCycle,
+                poi.getParticipantObjectDataLifeCycle()))
+            return false;
+
+        return true;
+    }
+
+    private boolean matchAnyParticipantObjectIdentification() {
+        return participantObjectTypeCodes.length == 0
+            && participantObjectTypeCodeRoles.length == 0
+            && participantObjectDataLifeCycle.length == 0;
     }
 
     private boolean isEmptyOrContains(String[] ss, String o) {

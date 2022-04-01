@@ -41,10 +41,7 @@ package org.dcm4che3.data;
 
 import static org.junit.Assert.*;
 
-import org.dcm4che3.data.SpecificCharacterSet;
 import org.junit.Test;
-
-import java.nio.charset.Charset;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -73,12 +70,13 @@ public class SpecificCharacterSetTest {
             "Zhang^XiaoDong=张^小东=";
     private static final String CHINESE_LONG_TEXT_GB2312 =
             "1.第一行文字。\r\n" +
-            "2.第一行文字。\r\n" +
-            "3.第一行文字。\r\n";
+            "2.第二行文字。\r\n" +
+            "3.第三行文字。\r\n";
     private static final String CHINESE_PERSON_NAME_UTF8 =
             "Wang^XiaoDong=王^小東=";
     private static final String CHINESE_PERSON_NAME_GB18030 =
             "Wang^XiaoDong=王^小东=";
+    private static final String FINNISH_PERSON_NAME = "Šiškino^Žuža";
 
     private static final byte[] GERMAN_PERSON_NAME_BYTE = {
             (byte) 0xc4, (byte) 0x6e, (byte) 0x65, (byte) 0x61, (byte) 0x73,
@@ -146,6 +144,25 @@ public class SpecificCharacterSetTest {
             (byte) 0xb1, (byte) 0xe6, (byte) 0xb5, (byte) 0xbf };
 
     private static final byte[] KOREAN_LONG_TEXT_BYTES = {
+            (byte) 0x54, (byte) 0x68, (byte) 0x65, (byte) 0x20, (byte) 0x31,
+            (byte) 0x73, (byte) 0x74, (byte) 0x20, (byte) 0x6c, (byte) 0x69,
+            (byte) 0x6e, (byte) 0x65, (byte) 0x20, (byte) 0x69, (byte) 0x6e,
+            (byte) 0x63, (byte) 0x6c, (byte) 0x75, (byte) 0x64, (byte) 0x65,
+            (byte) 0x73, (byte) 0x20, (byte) 0x1b, (byte) 0x24, (byte) 0x29,
+            (byte) 0x43, (byte) 0xb1, (byte) 0xe6, (byte) 0xb5, (byte) 0xbf,
+            (byte) 0x2e, (byte) 0x0d, (byte) 0x0a, (byte) 0x54, (byte) 0x68,
+            (byte) 0x65, (byte) 0x20, (byte) 0x32, (byte) 0x6e, (byte) 0x64,
+            (byte) 0x20, (byte) 0x6c, (byte) 0x69, (byte) 0x6e, (byte) 0x65,
+            (byte) 0x20, (byte) 0x69, (byte) 0x6e, (byte) 0x63, (byte) 0x6c,
+            (byte) 0x75, (byte) 0x64, (byte) 0x65, (byte) 0x73, (byte) 0x20,
+            (byte) 0x1b, (byte) 0x24, (byte) 0x29, (byte) 0x43, (byte) 0xb1,
+            (byte) 0xe6, (byte) 0xb5, (byte) 0xbf, (byte) 0x2c, (byte) 0x20,
+            (byte) 0x74, (byte) 0x6f, (byte) 0x6f, (byte) 0x2e, (byte) 0x0d,
+            (byte) 0x0a, (byte) 0x54, (byte) 0x68, (byte) 0x65, (byte) 0x20,
+            (byte) 0x33, (byte) 0x72, (byte) 0x64, (byte) 0x20, (byte) 0x6c,
+            (byte) 0x69, (byte) 0x6e, (byte) 0x65, (byte) 0x2e };
+
+    private static final byte[] KOREAN_LONG_TEXT_NO_EXPLICIT_ESCSEQ_BYTES = {
             (byte) 0x1b, (byte) 0x24, (byte) 0x29, (byte) 0x43, (byte) 0x54,
             (byte) 0x68, (byte) 0x65, (byte) 0x20, (byte) 0x31, (byte) 0x73,
             (byte) 0x74, (byte) 0x20, (byte) 0x6c, (byte) 0x69, (byte) 0x6e,
@@ -174,16 +191,16 @@ public class SpecificCharacterSetTest {
             (byte) 0x3D };
 
     private static final byte[] CHINESE_LONG_TEXT_GB2312_BYTES = {
-            (byte) 0x1B, (byte) 0x24, (byte) 0x29, (byte) 0x41, (byte) 0x31,
-            (byte) 0x2E, (byte) 0xB5, (byte) 0xDA, (byte) 0xD2, (byte) 0xBB,
+            (byte) 0x31, (byte) 0x2e, (byte) 0x1B, (byte) 0x24, (byte) 0x29,
+            (byte) 0x41, (byte) 0xB5, (byte) 0xDA, (byte) 0xD2, (byte) 0xBB,
             (byte) 0xD0, (byte) 0xD0, (byte) 0xCE, (byte) 0xC4, (byte) 0xD7,
             (byte) 0xD6, (byte) 0xA1, (byte) 0xA3, (byte) 0x0D, (byte) 0x0A,
-            (byte) 0x1B, (byte) 0x24, (byte) 0x29, (byte) 0x41, (byte) 0x32,
-            (byte) 0x2E, (byte) 0xB5, (byte) 0xDA, (byte) 0xD2, (byte) 0xBB,
+            (byte) 0x32, (byte) 0x2e, (byte) 0x1B, (byte) 0x24, (byte) 0x29,
+            (byte) 0x41, (byte) 0xB5, (byte) 0xDA, (byte) 0xB6, (byte) 0xFE,
             (byte) 0xD0, (byte) 0xD0, (byte) 0xCE, (byte) 0xC4, (byte) 0xD7,
             (byte) 0xD6, (byte) 0xA1, (byte) 0xA3, (byte) 0x0D, (byte) 0x0A,
-            (byte) 0x1B, (byte) 0x24, (byte) 0x29, (byte) 0x41, (byte) 0x33,
-            (byte) 0x2E, (byte) 0xB5, (byte) 0xDA, (byte) 0xD2, (byte) 0xBB,
+            (byte) 0x33, (byte) 0x2e, (byte) 0x1B, (byte) 0x24, (byte) 0x29,
+            (byte) 0x41, (byte) 0xB5, (byte) 0xDA, (byte) 0xC8, (byte) 0xFD,
             (byte) 0xD0, (byte) 0xD0, (byte) 0xCE, (byte) 0xC4, (byte) 0xD7,
             (byte) 0xD6, (byte) 0xA1, (byte) 0xA3, (byte) 0x0D, (byte) 0x0A };
 
@@ -200,6 +217,16 @@ public class SpecificCharacterSetTest {
             (byte) 0x6f, (byte) 0x6e, (byte) 0x67, (byte) 0x3d, (byte) 0xcd,
             (byte) 0xf5, (byte) 0x5e, (byte) 0xd0, (byte) 0xa1, (byte) 0xb6,
             (byte) 0xab, (byte) 0x3d };
+
+    private static final byte[] FINNISH_PERSON_NAME_8859_15_BYTES = {
+            (byte) 0xa6, (byte) 0x69, (byte) 0xa8, (byte) 0x6b, (byte) 0x69,
+            (byte) 0x6e, (byte) 0x6f, (byte) 0x5e, (byte) 0xb4, (byte) 0x75,
+            (byte) 0xb8, (byte) 0x61 };
+
+    private static final byte[] FINNISH_PERSON_NAME_WINDOWS_1252_BYTE = {
+            (byte) 0x8a, (byte) 0x69, (byte) 0x9a, (byte) 0x6b, (byte) 0x69,
+            (byte) 0x6e, (byte) 0x6f, (byte) 0x5e, (byte) 0x8e, (byte) 0x75,
+            (byte) 0x9e, (byte) 0x61 };
 
     private SpecificCharacterSet iso8859_1() {
         return SpecificCharacterSet.valueOf(new String[] { "ISO_IR 100" });
@@ -229,6 +256,11 @@ public class SpecificCharacterSetTest {
     private SpecificCharacterSet jisX0201() {
         return SpecificCharacterSet.valueOf(
                 new String[] { "ISO 2022 IR 13", "ISO 2022 IR 87" });
+    }
+
+    private SpecificCharacterSet jisX0201_withAlias() {
+        return SpecificCharacterSet.valueOf(
+                new String[] { "ISO_IR 13", "ISO 2022 IR 87" });
     }
 
     private SpecificCharacterSet ksx1001() {
@@ -350,6 +382,18 @@ public class SpecificCharacterSetTest {
     }
 
     @Test
+    public void testEncodeJapanesePersonNameJISX0201_withAlias() {
+        assertArrayEquals(JAPANESE_PERSON_NAME_JISX0201_BYTES,
+                jisX0201_withAlias().encode(JAPANESE_PERSON_NAME_JISX0201, PN_DELIMS));
+    }
+
+    @Test
+    public void testDecodeJapanesePersonNameJISX0201_withAlias() {
+        assertEquals(JAPANESE_PERSON_NAME_JISX0201,
+                jisX0201_withAlias().decode(JAPANESE_PERSON_NAME_JISX0201_BYTES));
+    }
+
+    @Test
     public void testEncodeKoreanPersonName() {
         assertArrayEquals(KOREAN_PERSON_NAME_BYTES,
                 ksx1001().encode(KOREAN_PERSON_NAME, PN_DELIMS));
@@ -370,7 +414,7 @@ public class SpecificCharacterSetTest {
     @Test
     public void testDecodeKoreanLongText() {
         assertEquals(KOREAN_LONG_TEXT,
-                ksx1001().decode(KOREAN_LONG_TEXT_BYTES));
+                ksx1001().decode(KOREAN_LONG_TEXT_NO_EXPLICIT_ESCSEQ_BYTES));
     }
 
     @Test
@@ -478,6 +522,50 @@ public class SpecificCharacterSetTest {
         for ( int i = 0; i < edgeCases.length; ++i ) {
             assertEquals( "Unexpected value for the sequence with the index " + i, expectedStrings[ i ],
                           jisX0201().decode( edgeCases[ i ] ) );
+        }
+    }
+
+    @Test
+    public void testEncodeFinnishPersonName8859_15() {
+        SpecificCharacterSet.setCharsetNameMapping("ISO_IR 100", "ISO-8859-15");
+        try {
+            assertArrayEquals(FINNISH_PERSON_NAME_8859_15_BYTES,
+                    iso8859_1().encode(FINNISH_PERSON_NAME, PN_DELIMS));
+        } finally {
+            SpecificCharacterSet.resetCharsetNameMappings();
+        }
+    }
+
+    @Test
+    public void testDecodeFinnishPersonName8859_15() {
+        SpecificCharacterSet.setCharsetNameMapping("ISO_IR 100", "ISO-8859-15");
+        try {
+            assertEquals(FINNISH_PERSON_NAME,
+                    iso8859_1().decode(FINNISH_PERSON_NAME_8859_15_BYTES));
+        } finally {
+            SpecificCharacterSet.resetCharsetNameMappings();
+        }
+    }
+
+    @Test
+    public void testEncodeFinnishPersonNameWindows1252() {
+        SpecificCharacterSet.setCharsetNameMapping("ISO_IR 100", "windows-1252");
+        try {
+            assertArrayEquals(FINNISH_PERSON_NAME_WINDOWS_1252_BYTE,
+                    iso8859_1().encode(FINNISH_PERSON_NAME, PN_DELIMS));
+        } finally {
+            SpecificCharacterSet.resetCharsetNameMappings();
+        }
+    }
+
+    @Test
+    public void testDecodeFinnishPersonNameWindows1252() {
+        SpecificCharacterSet.setCharsetNameMapping("ISO_IR 100", "windows-1252");
+        try {
+            assertEquals(FINNISH_PERSON_NAME,
+                    iso8859_1().decode(FINNISH_PERSON_NAME_WINDOWS_1252_BYTE));
+        } finally {
+            SpecificCharacterSet.resetCharsetNameMappings();
         }
     }
 }

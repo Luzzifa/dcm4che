@@ -211,13 +211,13 @@ public enum Dimse {
             promptIntTo(cmdAttrs, ", prior=", Tag.Priority, sb);
             promptMoveOriginatorTo(cmdAttrs, sb);
             break;
+        case C_FIND_RQ:
         case C_GET_RQ:
             promptIntTo(cmdAttrs, ", prior=", Tag.Priority, sb);
-            promptAttributeIdentifierListTo(cmdAttrs, sb);
             break;
-        case C_FIND_RQ:
         case C_MOVE_RQ:
             promptIntTo(cmdAttrs, ", prior=", Tag.Priority, sb);
+            promptMoveDestination(cmdAttrs, sb);
             break;
         case C_GET_RSP:
         case C_MOVE_RSP:
@@ -226,6 +226,9 @@ public enum Dimse {
         case N_EVENT_REPORT_RQ:
         case N_EVENT_REPORT_RSP:
             promptIntTo(cmdAttrs, ", eventID=", Tag.EventTypeID, sb);
+            break;
+        case N_GET_RQ:
+            promptAttributeIdentifierListTo(cmdAttrs, sb);
             break;
         case N_ACTION_RQ:
         case N_ACTION_RSP:
@@ -268,6 +271,10 @@ public enum Dimse {
             if (uid != null)
                 promptUIDTo(name, uid, sb);
         }
+    }
+
+    private static void promptMoveDestination(Attributes cmd, StringBuilder sb) {
+        sb.append(", dest=").append(cmd.getString(Tag.MoveDestination));
     }
 
     private static void promptUIDTo(String name, String uid, StringBuilder sb) {

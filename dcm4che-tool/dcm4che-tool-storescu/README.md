@@ -37,12 +37,12 @@ Options:
                                           password by default
     --key-store <file|url>                file path or URL of key store
                                           containing the private key,
-                                          resource:key.jks by default
+                                          resource:key.p12 by default
     --key-store-pass <password>           password for key store
                                           containing the private key,
                                           'secret' by default
     --key-store-type <storetype>          type of key store containing the
-                                          private key, JKS by default
+                                          private key, PKCS12 by default
     --max-ops-invoked <no>                maximum number of operations
                                           this AE may invoke
                                           asynchronously, unlimited by
@@ -96,7 +96,7 @@ Options:
                                           other outstanding DIMSE RSPs
                                           than C-MOVE or C-GET RSPs, no
                                           timeout by default
- -s <[seq/]attr=value>                    specify attributes added to the
+ -s <[seq.]attr=value>                    specify attributes added to the
                                           sent object(s). attr can be
                                           specified by keyword or tag
                                           value (in hex), e.g. PatientName
@@ -104,7 +104,7 @@ Options:
                                           nested Datasets can be specified
                                           by including the keyword/tag
                                           value of the sequence attribute,
-                                          e.g. 00400275/00400009 for
+                                          e.g. 00400275.00400009 for
                                           Scheduled Procedure Step ID in
                                           the Request Attributes Sequence.
     --soclose-delay <ms>                  delay in ms after sending
@@ -126,6 +126,34 @@ Options:
     --ssl3                                enable only TLS/SSL protocol
                                           SSLv3; equivalent to
                                           --tls-protocol SSLv3
+    --store-tc <cuid:tsuid[(,|;)...]>     specifies Storage Transfer
+                                          Capability offered additionally
+                                          to the Verification SOP Class if
+                                          no DICOM file is specified,
+                                          probing the Association
+                                          Acceptance Policy of the Storage
+                                          SCP. SOP Class and Transfer
+                                          Syntaxes can be specified by its
+                                          UID or its name in camel-Case
+                                          (e.g. 1.2.840.10008.5.1.4.1.1.2
+                                          or CTImageStorage). Semicolon
+                                          separated Transfer Syntaxes will
+                                          be offered in separate
+                                          Presentation Contexts, where
+                                          comma separated Transfer
+                                          Syntaxes will be offered in one
+                                          Presentation Context.
+    --store-tcs <file|url>                specifies file which defines
+                                          negotiated Storage Transfer
+                                          Capabilities offered
+                                          additionally to the Verification
+                                          SOP Class if no DICOM file is
+                                          specified, probing the
+                                          Association Acceptance Policy of
+                                          the Storage SCP. Storage
+                                          Transfer Capabilities are
+                                          formatted as values of option
+                                          --store-tc.
     --store-timeout <ms>                  timeout in ms for sending
                                           C-STORE sRQ, no timeout by
                                           default
@@ -195,22 +223,26 @@ Options:
                                           default
     --trust-store <file|url>              file path of key store
                                           containing trusted certificates,
-                                          resource:cacerts.jks by default
+                                          resource:cacerts.p12 by default
     --trust-store-pass <password>         password for key store with
                                           trusted certificates, 'secret'
                                           by default
     --trust-store-type <storetype>        type of key store with trusted
-                                          certificates, JKS by default
+                                          certificates, PKCS12 by default
     --uid-suffix <suffix>                 specify suffix to be appended to
                                           the Study, Series and SOP
                                           Instance UID of the sent
                                           object(s).
     --user <name>                         negotiate user identity with
                                           specified user name
+    --user-jwt <token>                    negotiate user identity with
+                                          specified JSON Web Token
     --user-pass <password>                negotiate user identity with
                                           specified password
     --user-rsp                            negotiate user identity with
                                           positive response requested
+    --user-saml <assertion>               negotiate user identity with
+                                          specified SAML Assertion
  -V,--version                             output version information and
                                           exit
 -

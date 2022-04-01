@@ -52,12 +52,7 @@ import java.util.regex.Pattern;
 public class StringUtils {
 
     public static String LINE_SEPARATOR = AccessController.doPrivileged(
-            new PrivilegedAction<String>() {
-                public String run() {
-                    return System.getProperty("line.separator");
-                }
-            }
-         );
+            (PrivilegedAction<String>) () -> System.getProperty("line.separator"));
 
     public static String[] EMPTY_STRING = {};
 
@@ -193,10 +188,16 @@ public class StringUtils {
         return s.substring(0, endIndex);
     }
 
-    public static int parseIS(String s) {
+    public static long parseIS(String s) {
         return s != null && s.length() != 0
-                ? (int) Long.parseLong(s.charAt(0) == '+' ? s.substring(1) : s)
-                : 0;
+                ? Long.parseLong(s)
+                : 0L;
+    }
+
+    public static long parseUV(String s) {
+        return s != null && s.length() != 0
+                ? Long.parseUnsignedLong(s)
+                : 0L;
     }
 
     public static double parseDS(String s) {

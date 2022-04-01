@@ -43,6 +43,7 @@ import static org.junit.Assert.assertEquals;
 import java.io.StringWriter;
 
 import javax.json.Json;
+import javax.json.JsonValue;
 import javax.json.stream.JsonGenerator;
 
 import org.dcm4che3.data.Attributes;
@@ -60,7 +61,44 @@ import org.junit.Test;
 public class JSONWriterTest {
 
     private static byte[] BYTE01 = { 0, 1 };
-    private String RESULT = "{"
+    private static final int[] INTS = { 0, 1, -2 };
+    private static final int[] UINTS = { 0, 1, -2 & 0xffff };
+    private static final long[] LONGS = { 0L, 1L, -2L, Long.MAX_VALUE };
+    private String RESULT_STRING = "{"
+            + "\"00080005\":{\"vr\":\"CS\",\"Value\":[null,\"ISO 2022 IR 87\"]},"
+            + "\"00080008\":{\"vr\":\"CS\",\"Value\":[\"DERIVED\",\"PRIMARY\"]},"
+            + "\"00082112\":{\"vr\":\"SQ\",\"Value\":["
+                + "{"
+                    + "\"00081150\":{\"vr\":\"UI\",\"Value\":[\"1.2.840.10008.5.1.4.1.1.2\"]},"
+                    + "\"00081155\":{\"vr\":\"UI\",\"Value\":[\"1.2.3.4\"]}"
+                + "}"
+                + "]},"
+            + "\"00090010\":{\"vr\":\"LO\",\"Value\":[\"PRIVATE\"]},"
+            + "\"00091002\":{\"vr\":\"OB\",\"InlineBinary\":\"AAE=\"},"
+            + "\"00100010\":{\"vr\":\"PN\",\"Value\":["
+                + "{"
+                    + "\"Alphabetic\":\"af^ag\","
+                    + "\"Ideographic\":\"if^ig\","
+                    + "\"Phonetic\":\"pf^pg\""
+                + "}"
+            + "]},"
+            + "\"00181063\":{\"vr\":\"DS\",\"Value\":[\"33.0\"]},"
+            + "\"00280002\":{\"vr\":\"US\",\"Value\":[1]},"
+            + "\"00280008\":{\"vr\":\"IS\",\"Value\":[\"001\"]},"
+            + "\"00280009\":{\"vr\":\"AT\",\"Value\":[\"00181063\"]},"
+            + "\"00720078\":{\"vr\":\"UL\",\"Value\":[0,1,4294967294]},"
+            + "\"0072007A\":{\"vr\":\"US\",\"Value\":[0,1,65534]},"
+            + "\"0072007C\":{\"vr\":\"SL\",\"Value\":[0,1,-2]},"
+            + "\"0072007E\":{\"vr\":\"SS\",\"Value\":[0,1,-2]},"
+            + "\"00720082\":{\"vr\":\"SV\",\"Value\":[\"0\",\"1\",\"-2\",\"9223372036854775807\"]},"
+            + "\"00720083\":{\"vr\":\"UV\",\"Value\":[\"0\",\"1\",\"18446744073709551614\",\"9223372036854775807\"]},"
+            + "\"60003000\":{\"vr\":\"OW\",\"BulkDataURI\":\"file:/OverlayData\"},"
+            + "\"7FE00010\":{\"vr\":\"OB\",\"DataFragment\":["
+                + "null,"
+                + "{\"BulkDataURI\":\"file:/PixelData\"}"
+            + "]}}";
+
+    private String RESULT_NUMBER = "{"
             + "\"00080005\":{\"vr\":\"CS\",\"Value\":[null,\"ISO 2022 IR 87\"]},"
             + "\"00080008\":{\"vr\":\"CS\",\"Value\":[\"DERIVED\",\"PRIMARY\"]},"
             + "\"00082112\":{\"vr\":\"SQ\",\"Value\":["
@@ -82,6 +120,12 @@ public class JSONWriterTest {
             + "\"00280002\":{\"vr\":\"US\",\"Value\":[1]},"
             + "\"00280008\":{\"vr\":\"IS\",\"Value\":[1]},"
             + "\"00280009\":{\"vr\":\"AT\",\"Value\":[\"00181063\"]},"
+            + "\"00720078\":{\"vr\":\"UL\",\"Value\":[0,1,4294967294]},"
+            + "\"0072007A\":{\"vr\":\"US\",\"Value\":[0,1,65534]},"
+            + "\"0072007C\":{\"vr\":\"SL\",\"Value\":[0,1,-2]},"
+            + "\"0072007E\":{\"vr\":\"SS\",\"Value\":[0,1,-2]},"
+            + "\"00720082\":{\"vr\":\"SV\",\"Value\":[0,1,-2,\"9223372036854775807\"]},"
+            + "\"00720083\":{\"vr\":\"UV\",\"Value\":[0,1,\"18446744073709551614\",\"9223372036854775807\"]},"
             + "\"60003000\":{\"vr\":\"OW\",\"BulkDataURI\":\"file:/OverlayData\"},"
             + "\"7FE00010\":{\"vr\":\"OB\",\"DataFragment\":["
                 + "null,"
@@ -93,7 +137,15 @@ public class JSONWriterTest {
             "\"00720076\":{\"vr\":\"FL\",\"Value\":[-1.7976931348623157E308,null,1.7976931348623157E308]}}";
 
     @Test
-    public void test() {
+    public void testStringEncoding() {
+        test(RESULT_STRING, JsonValue.ValueType.STRING);
+    }
+
+    @Test
+    public void testNumberEncoding() {
+        test(RESULT_NUMBER, JsonValue.ValueType.NUMBER);
+    }
+    private void test(String expected, JsonValue.ValueType jsonType) {
         Attributes dataset = new Attributes();
         dataset.setString(Tag.SpecificCharacterSet, VR.CS, null, "ISO 2022 IR 87");
         dataset.setString(Tag.ImageType, VR.CS, "DERIVED", "PRIMARY");
@@ -103,19 +155,30 @@ public class JSONWriterTest {
         item.setString(Tag.ReferencedSOPInstanceUID, VR.UI, "1.2.3.4");
         dataset.setString(Tag.PatientName, VR.PN, "af^ag=if^ig=pf^pg");
         dataset.setBytes("PRIVATE", 0x00090002, VR.OB, BYTE01);
-        dataset.setDouble(Tag.FrameTime, VR.DS, 33.0);
+        dataset.setString(Tag.FrameTime, VR.DS, "33.0");
         dataset.setInt(Tag.SamplesPerPixel, VR.US, 1);
-        dataset.setInt(Tag.NumberOfFrames, VR.IS, 1);
+        dataset.setString(Tag.NumberOfFrames, VR.IS, "001");
         dataset.setInt(Tag.FrameIncrementPointer, VR.AT, Tag.FrameTime);
+        dataset.setInt(Tag.SelectorULValue, VR.UL, INTS);
+        dataset.setInt(Tag.SelectorUSValue, VR.US, UINTS);
+        dataset.setInt(Tag.SelectorSLValue, VR.SL, INTS);
+        dataset.setInt(Tag.SelectorSSValue, VR.SS, INTS);
+        dataset.setLong(Tag.SelectorSVValue, VR.SV, LONGS);
+        dataset.setLong(Tag.SelectorUVValue, VR.UV, LONGS);
         dataset.setValue(Tag.OverlayData, VR.OW, new BulkData(null, "file:/OverlayData", false));
         Fragments frags = dataset.newFragments(Tag.PixelData, VR.OB, 2);
         frags.add(null);
         frags.add(new BulkData(null, "file:/PixelData", false));
         StringWriter writer = new StringWriter();
         JsonGenerator gen = Json.createGenerator(writer);
-        new JSONWriter(gen).write(dataset);
+        JSONWriter jsonWriter = new JSONWriter(gen);
+        jsonWriter.setJsonType(VR.DS, jsonType);
+        jsonWriter.setJsonType(VR.IS, jsonType);
+        jsonWriter.setJsonType(VR.SV, jsonType);
+        jsonWriter.setJsonType(VR.UV, jsonType);
+        jsonWriter.write(dataset);
         gen.flush();
-        assertEquals(RESULT, writer.toString());
+        assertEquals(expected, writer.toString());
     }
     @Test
     public void testInfinityAndNaN() {

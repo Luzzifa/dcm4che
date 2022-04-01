@@ -40,24 +40,24 @@ package org.dcm4che3.tool.dcm2jpg;
 
 import org.apache.commons.cli.*;
 import org.dcm4che3.data.Attributes;
-import org.dcm4che3.image.BufferedImageUtils;
+import org.dcm4che3.image.ICCProfile;
 import org.dcm4che3.imageio.plugins.dcm.DicomImageReadParam;
 import org.dcm4che3.io.DicomInputStream;
 import org.dcm4che3.tool.common.CLIUtils;
 import org.dcm4che3.util.SafeClose;
 
 import javax.imageio.*;
+import javax.imageio.stream.FileImageInputStream;
+import javax.imageio.stream.FileImageOutputStream;
 import javax.imageio.stream.ImageInputStream;
-import javax.imageio.stream.ImageOutputStream;
 import java.awt.image.BufferedImage;
-import java.awt.image.ColorModel;
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.text.MessageFormat;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
-import java.util.ResourceBundle;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.StreamSupport;
 
 /**
  * @author Gunter Zeilinger (gunterze@protonmail.com)
@@ -67,6 +67,10 @@ public class Dcm2Jpg {
     private static ResourceBundle rb =
         ResourceBundle.getBundle("org.dcm4che3.tool.dcm2jpg.messages");
 
+    private interface ReadImage {
+        BufferedImage apply(File src) throws IOException;
+    }
+    private ReadImage readImage;
     private String suffix;
     private int frame = 1;
     private int windowIndex;
@@ -75,6 +79,7 @@ public class Dcm2Jpg {
     private float windowCenter;
     private float windowWidth;
     private boolean autoWindowing = true;
+    private boolean ignorePresentationLUTShape;
     private Attributes prState;
     private final ImageReader imageReader =
             ImageIO.getImageReadersByFormatName("DICOM").next();
@@ -83,25 +88,24 @@ public class Dcm2Jpg {
     private int overlayActivationMask = 0xffff;
     private int overlayGrayscaleValue = 0xffff;
     private int overlayRGBValue = 0xffffff;
+    private ICCProfile.Option iccProfile = ICCProfile.Option.none;
 
     public void initImageWriter(String formatName, String suffix,
             String clazz, String compressionType, Number quality) {
+        this.suffix = suffix != null ? suffix : formatName.toLowerCase();
         Iterator<ImageWriter> imageWriters =
                 ImageIO.getImageWritersByFormatName(formatName);
         if (!imageWriters.hasNext())
             throw new IllegalArgumentException(
                     MessageFormat.format(rb.getString("formatNotSupported"),
                             formatName));
-        this.suffix = suffix != null ? suffix : formatName.toLowerCase();
-        imageWriter = imageWriters.next();
-        if (clazz != null)
-            while (!clazz.equals(imageWriter.getClass().getName()))
-                if (imageWriters.hasNext())
-                    imageWriter = imageWriters.next();
-                else
-                    throw new IllegalArgumentException(
-                            MessageFormat.format(rb.getString("noSuchImageWriter"),
-                                    clazz, formatName));
+        Iterable<ImageWriter> iterable = () -> imageWriters;
+        imageWriter = StreamSupport.stream(iterable.spliterator(), false)
+                .filter(matchClassName(clazz))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        MessageFormat.format(rb.getString("noSuchImageWriter"),
+                                clazz, formatName)));
         imageWriteParam = imageWriter.getDefaultWriteParam();
         if (compressionType != null || quality != null) {
             imageWriteParam.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
@@ -110,6 +114,17 @@ public class Dcm2Jpg {
             if (quality != null)
                 imageWriteParam.setCompressionQuality(quality.floatValue());
         }
+    }
+
+    private static Predicate<Object> matchClassName(String clazz) {
+        Predicate<String> predicate = clazz.endsWith("*")
+                ? startsWith(clazz.substring(0, clazz.length() - 1))
+                : clazz::equals;
+        return w -> predicate.test(w.getClass().getName());
+    }
+
+    private static Predicate<String> startsWith(String prefix) {
+        return s -> s.startsWith(prefix);
     }
 
     public final void setFrame(int frame) {
@@ -140,6 +155,14 @@ public class Dcm2Jpg {
         this.autoWindowing = autoWindowing;
     }
 
+    public boolean isIgnorePresentationLUTShape() {
+        return ignorePresentationLUTShape;
+    }
+
+    public void setIgnorePresentationLUTShape(boolean ignorePresentationLUTShape) {
+        this.ignorePresentationLUTShape = ignorePresentationLUTShape;
+    }
+
     public final void setPresentationState(Attributes prState) {
         this.prState = prState;
     }
@@ -156,7 +179,14 @@ public class Dcm2Jpg {
         this.overlayRGBValue = overlayRGBValue;
     }
 
-    @SuppressWarnings("static-access")
+    public final void setICCProfile(ICCProfile.Option iccProfile) {
+        this.iccProfile = Objects.requireNonNull(iccProfile);
+    }
+
+    public final void setReadImage(ReadImage readImage) {
+        this.readImage = readImage;
+    }
+
     private static CommandLine parseComandLine(String[] args)
             throws ParseException {
         Options opts = new Options();
@@ -225,6 +255,12 @@ public class Dcm2Jpg {
                 .build());
         opts.addOption(Option.builder()
                 .hasArg()
+                .argName("profile")
+                .desc(rb.getString("iccprofile"))
+                .longOpt("iccprofile")
+                .build());
+        opts.addOption(Option.builder()
+                .hasArg()
                 .argName("file")
                 .type(PatternOptionBuilder.EXISTING_FILE_VALUE)
                 .desc(rb.getString("ps"))
@@ -250,9 +286,19 @@ public class Dcm2Jpg {
                 .build());
         opts.addOption(null, "uselut", false, rb.getString("uselut"));
         opts.addOption(null, "noauto", false, rb.getString("noauto"));
+        opts.addOption(null, "noshape", false, rb.getString("noshape"));
         opts.addOption(null, "lsE", false, rb.getString("lsencoders"));
         opts.addOption(null, "lsF", false, rb.getString("lsformats"));
-
+        OptionGroup useGroup = new OptionGroup();
+        useGroup.addOption(Option.builder()
+                .longOpt("usedis")
+                .desc(rb.getString("usedis"))
+                .build());
+        useGroup.addOption(Option.builder()
+                .longOpt("useiis")
+                .desc(rb.getString("useiis"))
+                .build());
+        opts.addOptionGroup(useGroup);
         CommandLine cl = CLIUtils.parseComandLine(args, opts, rb, Dcm2Jpg.class);
         if (cl.hasOption("lsF")) {
             listSupportedFormats();
@@ -272,7 +318,7 @@ public class Dcm2Jpg {
             main.initImageWriter(
                     cl.getOptionValue("F", "JPEG"),
                     cl.getOptionValue("suffix"),
-                    cl.getOptionValue("E"),
+                    cl.getOptionValue("E", "com.sun.imageio.plugins.*"),
                     cl.getOptionValue("C"),
                     (Number) cl.getParsedOptionValue("q"));
             if (cl.hasOption("frame"))
@@ -301,8 +347,24 @@ public class Dcm2Jpg {
                         parseHex(cl.getOptionValue("ovlyrgb").substring(1)));
             main.setPreferWindow(!cl.hasOption("uselut"));
             main.setAutoWindowing(!cl.hasOption("noauto"));
+            main.setIgnorePresentationLUTShape(cl.hasOption("noshape"));
             main.setPresentationState(
                     loadDicomObject((File) cl.getParsedOptionValue("ps")));
+            if (cl.hasOption("iccprofile")) {
+                try {
+                    main.setICCProfile(ICCProfile.Option.valueOf(cl.getOptionValue("iccprofile")));
+                } catch (IllegalArgumentException e) {
+                    throw new ParseException(e.getMessage());
+                }
+            }
+            main.setReadImage(cl.hasOption("frame")
+                    ? (cl.hasOption("usedis")
+                        ? main::readImageFromDicomInputStream
+                        : main::readImageFromImageInputStream)
+                    : (cl.hasOption("useiis")
+                        ? main::readImageFromImageInputStream
+                        : main::readImageFromDicomInputStream));
+
             @SuppressWarnings("unchecked")
             final List<String> argList = cl.getArgList();
             int argc = argList.size();
@@ -360,30 +422,21 @@ public class Dcm2Jpg {
     }
 
     public void convert(File src, File dest) throws IOException {
-        ImageInputStream iis = ImageIO.createImageInputStream(src);
-        try {
-            BufferedImage bi = readImage(iis);
-            bi = convert(bi);
-            dest.delete();
-            ImageOutputStream ios = ImageIO.createImageOutputStream(dest);
-            try {
-                writeImage(ios, bi);
-            } finally {
-                try { ios.close(); } catch (IOException ignore) {}
-            }
-        } finally {
-            try { iis.close(); } catch (IOException ignore) {}
+        writeImage(dest, iccProfile.adjust(readImage.apply(src)));
+    }
+
+    public BufferedImage readImageFromImageInputStream(File file) throws IOException {
+        try (ImageInputStream iis = new FileImageInputStream(file)) {
+            imageReader.setInput(iis);
+            return imageReader.read(frame - 1, readParam());
         }
     }
 
-    private BufferedImage convert(BufferedImage bi) {
-        ColorModel cm = bi.getColorModel();
-        return cm.getNumComponents() == 3 ? BufferedImageUtils.convertToIntRGB(bi) : bi;
-    }
-
-    private BufferedImage readImage(ImageInputStream iis) throws IOException {
-        imageReader.setInput(iis);
-        return imageReader.read(frame-1, readParam());
+    public BufferedImage readImageFromDicomInputStream(File file) throws IOException {
+        try (DicomInputStream dis = new DicomInputStream(file)) {
+            imageReader.setInput(dis);
+            return imageReader.read(frame - 1, readParam());
+        }
     }
 
     private ImageReadParam readParam() {
@@ -392,6 +445,7 @@ public class Dcm2Jpg {
         param.setWindowCenter(windowCenter);
         param.setWindowWidth(windowWidth);
         param.setAutoWindowing(autoWindowing);
+        param.setIgnorePresentationLUTShape(ignorePresentationLUTShape);
         param.setWindowIndex(windowIndex);
         param.setVOILUTIndex(voiLUTIndex);
         param.setPreferWindow(preferWindow);
@@ -402,10 +456,12 @@ public class Dcm2Jpg {
         return param;
     }
 
-    private void writeImage(ImageOutputStream ios, BufferedImage bi)
-            throws IOException {
-        imageWriter.setOutput(ios);
-        imageWriter.write(null, new IIOImage(bi, null, null), imageWriteParam);
+    private void writeImage(File dest, BufferedImage bi) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(dest, "rw")) {
+            raf.setLength(0);
+            imageWriter.setOutput(new FileImageOutputStream(raf));
+            imageWriter.write(null, new IIOImage(bi, null, null), imageWriteParam);
+        }
     }
 
 
@@ -418,7 +474,7 @@ public class Dcm2Jpg {
             return null;
         DicomInputStream dis = new DicomInputStream(f);
         try {
-            return dis.readDataset(-1, -1);
+            return dis.readDataset();
         } finally {
             SafeClose.close(dis);
         }

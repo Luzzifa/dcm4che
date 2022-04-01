@@ -40,12 +40,12 @@ Options:
                                           password by default
     --key-store <file|url>                file path or URL of key store
                                           containing the private key,
-                                          resource:key.jks by default
+                                          resource:key.p12 by default
     --key-store-pass <password>           password for key store
                                           containing the private key,
                                           'secret' by default
     --key-store-type <storetype>          type of key store containing the
-                                          private key, JKS by default
+                                          private key, PKCS12 by default
     --level <level>                       specify level name of the
                                           emitted Syslog messages. Valid
                                           level names are: emerg, alert,
@@ -137,12 +137,12 @@ Options:
                                           --tls-protocol TLSv1.3
     --trust-store <file|url>              file path of key store
                                           containing trusted certificates,
-                                          resource:cacerts.jks by default
+                                          resource:cacerts.p12 by default
     --trust-store-pass <password>         password for key store with
                                           trusted certificates, 'secret'
                                           by default
     --trust-store-type <storetype>        type of key store with trusted
-                                          certificates, JKS by default
+                                          certificates, PKCS12 by default
     --udp                                 send Syslog messages over UDP;
                                           send Syslog messages over TCP by
                                           default.

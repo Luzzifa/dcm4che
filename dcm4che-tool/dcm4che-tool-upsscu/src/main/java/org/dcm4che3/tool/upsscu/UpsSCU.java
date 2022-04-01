@@ -38,14 +38,6 @@
 
 package org.dcm4che3.tool.upsscu;
 
-import java.io.*;
-import java.security.GeneralSecurityException;
-import java.util.Date;
-import java.util.ResourceBundle;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-
 import org.apache.commons.cli.*;
 import org.dcm4che3.data.*;
 import org.dcm4che3.io.SAXReader;
@@ -59,6 +51,15 @@ import org.dcm4che3.util.StreamUtils;
 import org.dcm4che3.util.TagUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.GeneralSecurityException;
+import java.util.Date;
+import java.util.ResourceBundle;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * @author Vrinda Nayak <vrinda.nayak@j4care.com>
@@ -78,7 +79,7 @@ public class UpsSCU {
     }
 
     private static final DicomService upsscuNEventRqHandler =
-            new AbstractDicomService(UID.UnifiedProcedureStepPushSOPClass) {
+            new AbstractDicomService(UID.UnifiedProcedureStepPush) {
                 @Override
                 public void onDimseRQ(Association as, PresentationContext pc,
                                       Dimse dimse, Attributes cmd, PDVInputStream data)
@@ -181,7 +182,7 @@ public class UpsSCU {
 
     public void addVerificationPresentationContext() {
         rq.addPresentationContext(
-                new PresentationContext(1, UID.VerificationSOPClass,
+                new PresentationContext(1, UID.Verification,
                         UID.ImplicitVRLittleEndian));
     }
 
@@ -321,8 +322,7 @@ public class UpsSCU {
                 .build());
         opts.addOption(Option.builder("m")
                 .hasArgs()
-                .argName("[seq/]attr=value")
-                .valueSeparator('=')
+                .argName("[seq.]attr=value")
                 .desc(rb.getString("match"))
                 .build());
         opts.addOption(Option.builder("O")
@@ -333,7 +333,7 @@ public class UpsSCU {
                 .build());
         opts.addOption(Option.builder("r")
                 .hasArgs()
-                .argName("[seq/]attr")
+                .argName("attr")
                 .desc(rb.getString("return"))
                 .build());
         opts.addOption(Option.builder()
@@ -356,8 +356,7 @@ public class UpsSCU {
                 .build());
         opts.addOption(Option.builder("s")
                 .hasArgs()
-                .argName("[seq/]attr=value")
-                .valueSeparator('=')
+                .argName("[seq.]attr=value")
                 .desc(rb.getString("set"))
                 .build());
         opts.addOption(Option.builder()
@@ -464,12 +463,12 @@ public class UpsSCU {
                     throw new MissingOptionException(rb.getString("missing-matching-keys"));
 
                 CLIUtils.addAttributes(attrs, cl.getOptionValues("m"));
-                main.setUPSIUID(UID.UPSFilteredGlobalSubscriptionSOPInstance);
+                main.setUPSIUID(UID.UPSFilteredGlobalSubscriptionInstance);
             }
         }
 
         if (main.upsiuid == null)
-            main.setUPSIUID(UID.UPSGlobalSubscriptionSOPInstance);
+            main.setUPSIUID(UID.UPSGlobalSubscriptionInstance);
 
         main.setSubscriptionAction(attrs);
     }
@@ -481,7 +480,7 @@ public class UpsSCU {
         main.ae.setDimseRQHandler(serviceRegistry);
         main.ae.addTransferCapability(
                 new TransferCapability(null,
-                        UID.VerificationSOPClass,
+                        UID.Verification,
                         TransferCapability.Role.SCP,
                         UID.ImplicitVRLittleEndian));
         main.ae.addTransferCapability(
@@ -534,7 +533,7 @@ public class UpsSCU {
 
     private void updateUps() throws Exception {
         as.nset(operation.getNegotiatingSOPClassUID(),
-                UID.UnifiedProcedureStepPushSOPClass,
+                UID.UnifiedProcedureStepPush,
                 upsiuid,
                 workItem(xmlFile == null || xmlFile.equals("update") ? null : xmlFile),
                 null,
@@ -543,7 +542,7 @@ public class UpsSCU {
 
     private void getUps() throws IOException, InterruptedException {
         as.nget(operation.getNegotiatingSOPClassUID(),
-                UID.UnifiedProcedureStepPushSOPClass,
+                UID.UnifiedProcedureStepPush,
                 upsiuid,
                 tags,
                 rspHandlerFactory.createDimseRSPHandlerForNGet());
@@ -573,13 +572,13 @@ public class UpsSCU {
     }
 
     enum Operation {
-        create(UID.UnifiedProcedureStepPushSOPClass, false),
-        update(UID.UnifiedProcedureStepPullSOPClass, true),
-        get(UID.UnifiedProcedureStepPushSOPClass, true),
-        changeState(UID.UnifiedProcedureStepPullSOPClass, true),
-        requestCancel(UID.UnifiedProcedureStepPushSOPClass, true),
-        subscriptionAction(UID.UnifiedProcedureStepWatchSOPClass, false),
-        receive(UID.UnifiedProcedureStepEventSOPClass, false);
+        create(UID.UnifiedProcedureStepPush, false),
+        update(UID.UnifiedProcedureStepPull, true),
+        get(UID.UnifiedProcedureStepPush, true),
+        changeState(UID.UnifiedProcedureStepPull, true),
+        requestCancel(UID.UnifiedProcedureStepPush, true),
+        subscriptionAction(UID.UnifiedProcedureStepWatch, false),
+        receive(UID.UnifiedProcedureStepEvent, false);
 
         private String negotiatingSOPClassUID;
         private boolean checkUPSIUID;
@@ -614,15 +613,15 @@ public class UpsSCU {
                     return update;
                 case "get":
                     return cl.hasOption("p")
-                            ? get.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepPullSOPClass)
+                            ? get.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepPull)
                             : cl.hasOption("w")
-                                ? get.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepWatchSOPClass)
+                                ? get.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepWatch)
                                 : get;
                 case "changeState":
                     return changeState;
                 case "requestCancel":
                     return cl.hasOption("w")
-                            ? requestCancel.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepWatchSOPClass)
+                            ? requestCancel.setNegotiatingSOPClassUID(UID.UnifiedProcedureStepWatch)
                             : requestCancel;
                 case "subscribe":
                     return subscriptionAction.setActionTypeID(3);
@@ -640,7 +639,7 @@ public class UpsSCU {
 
     private void actionOnUps(Attributes data, int actionTypeId) throws IOException, InterruptedException {
         as.naction(operation.negotiatingSOPClassUID,
-                UID.UnifiedProcedureStepPushSOPClass,
+                UID.UnifiedProcedureStepPush,
                 upsiuid,
                 actionTypeId,
                 data,

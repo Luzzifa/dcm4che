@@ -131,15 +131,15 @@ public class MediaTypes {
             new MediaType("image", "jpeg");
 
     /**
-     * "image/x-jls"
+     * "image/jls"
      */
-    public final static String IMAGE_X_JLS = "image/x-jls";
+    public final static String IMAGE_JLS = "image/jls";
 
     /**
-     * "image/x-jls"
+     * "image/jls"
      */
-    public final static MediaType IMAGE_X_JLS_TYPE =
-            new MediaType("image", "x-jls");
+    public final static MediaType IMAGE_JLS_TYPE =
+            new MediaType("image", "jls");
 
     /**
      * "image/jp2"
@@ -164,15 +164,15 @@ public class MediaTypes {
             new MediaType("image", "jpx");
 
     /**
-     * "image/dicom+rle"
+     * "image/dicom-rle"
      */
-    public final static String IMAGE_X_DICOM_RLE = "image/x-dicom+rle";
+    public final static String IMAGE_DICOM_RLE = "image/dicom-rle";
 
     /**
-     * "image/dicom+rle"
+     * "image/dicom-rle"
      */
-    public final static MediaType IMAGE_X_DICOM_RLE_TYPE =
-            new MediaType("image", "x-dicom+rle");
+    public final static MediaType IMAGE_DICOM_RLE_TYPE =
+            new MediaType("image", "dicom-rle");
 
     /**
      * "video/*"
@@ -285,13 +285,23 @@ public class MediaTypes {
             new MediaType("multipart", "related");
 
     /**
-     * "multipart/related;type=application/dicom"
+     * "multipart/related;type=\"application/dicom\""
+     */
+    public final static String MULTIPART_RELATED_APPLICATION_DICOM = "multipart/related;type=\"application/dicom\"";
+
+    /**
+     * "multipart/related;type=\"application/dicom\""
      */
     public final static MediaType MULTIPART_RELATED_APPLICATION_DICOM_TYPE =
             new MediaType("multipart", "related", Collections.singletonMap("type", APPLICATION_DICOM));
 
     /**
-     * "multipart/related;type=application/dicom+xml"
+     * "multipart/related;type=\"application/dicom+xml\""
+     */
+    public final static String MULTIPART_RELATED_APPLICATION_DICOM_XML = "multipart/related;type=\"application/dicom+xml\"";
+
+    /**
+     * "multipart/related;type=\"application/dicom+xml\""
      */
     public final static MediaType MULTIPART_RELATED_APPLICATION_DICOM_XML_TYPE =
             new MediaType("multipart", "related", Collections.singletonMap("type", APPLICATION_DICOM_XML));
@@ -306,6 +316,28 @@ public class MediaTypes {
      */
     public final static MediaType MODEL_STL_TYPE =
             new MediaType("model", "stl");
+
+    /**
+     * "model/x.stl-binary"
+     */
+    public final static String MODEL_X_STL_BINARY = "model/x.stl-binary";
+
+    /**
+     * "model/x.stl-binary"
+     */
+    public final static MediaType MODEL_X_STL_BINARY_TYPE =
+            new MediaType("model", "x.stl-binary");
+
+    /**
+     * "application/sla"
+     */
+    public final static String APPLICATION_SLA = "application/sla";
+
+    /**
+     * "application/sla"
+     */
+    public final static MediaType APPLICATION_SLA_TYPE =
+            new MediaType("application", "sla");
 
     /**
      * "model/obj"
@@ -329,6 +361,17 @@ public class MediaTypes {
     public final static MediaType MODEL_MTL_TYPE =
             new MediaType("model", "mtl");
 
+    /**
+     * "application/x-genozip"
+     */
+    public final static String APPLICATION_X_GENOZIP = "application/x-genozip";
+
+    /**
+     * "application/x-genozip"
+     */
+    public final static MediaType APPLICATION_X_GENOZIP_TYPE =
+            new MediaType("application", "x-genozip");
+
 
     public static MediaType forTransferSyntax(String ts) {
         MediaType type;
@@ -336,36 +379,36 @@ public class MediaTypes {
             case UID.ExplicitVRLittleEndian:
             case UID.ImplicitVRLittleEndian:
                 return MediaType.APPLICATION_OCTET_STREAM_TYPE;
-            case UID.JPEGLossless:
+            case UID.JPEGLosslessSV1:
                 return IMAGE_JPEG_TYPE;
             case UID.JPEGLSLossless:
-                return IMAGE_X_JLS_TYPE;
-            case UID.JPEG2000LosslessOnly:
+                return IMAGE_JLS_TYPE;
+            case UID.JPEG2000Lossless:
                 return IMAGE_JP2_TYPE;
-            case UID.JPEG2000Part2MultiComponentLosslessOnly:
+            case UID.JPEG2000MCLossless:
                 return IMAGE_JPX_TYPE;
             case UID.RLELossless:
-                return IMAGE_X_DICOM_RLE_TYPE;
-            case UID.JPEGBaseline1:
-            case UID.JPEGExtended24:
-            case UID.JPEGLosslessNonHierarchical14:
+                return IMAGE_DICOM_RLE_TYPE;
+            case UID.JPEGBaseline8Bit:
+            case UID.JPEGExtended12Bit:
+            case UID.JPEGLossless:
                 type = IMAGE_JPEG_TYPE;
                 break;
-            case UID.JPEGLSLossyNearLossless:
-                type = IMAGE_X_JLS_TYPE;
+            case UID.JPEGLSNearLossless:
+                type = IMAGE_JLS_TYPE;
                 break;
             case UID.JPEG2000:
                 type = IMAGE_JP2_TYPE;
                 break;
-            case UID.JPEG2000Part2MultiComponent:
+            case UID.JPEG2000MC:
                 type = IMAGE_JPX_TYPE;
                 break;
-            case UID.MPEG2:
-            case UID.MPEG2MainProfileHighLevel:
+            case UID.MPEG2MPML:
+            case UID.MPEG2MPHL:
                 type = VIDEO_MPEG_TYPE;
                 break;
-            case UID.MPEG4AVCH264HighProfileLevel41:
-            case UID.MPEG4AVCH264BDCompatibleHighProfileLevel41:
+            case UID.MPEG4HP41:
+            case UID.MPEG4HP41BD:
                 type = VIDEO_MP4_TYPE;
                 break;
             default:
@@ -381,22 +424,30 @@ public class MediaTypes {
 
         String type = bulkdataMediaType.getType().toLowerCase();
         String subtype = bulkdataMediaType.getSubtype().toLowerCase();
-        if (type.equals("image")) {
-            if (subtype.equals("jpeg"))
-                return UID.JPEGLossless;
-            else if (subtype.equals("x-jls"))
-                return UID.JPEGLSLossless;
-            else if (subtype.equals("jp2"))
-                return UID.JPEG2000LosslessOnly;
-            else if (subtype.equals("jpx"))
-                return UID.JPEG2000Part2MultiComponentLosslessOnly;
-            else if (subtype.equals("x-dicom+rle"))
-                return UID.RLELossless;
-        } else if (type.equals("video")) {
-            if (subtype.equals("mpeg"))
-                return UID.MPEG2;
-            else if (subtype.equals("mp4") || subtype.equals("quicktime"))
-                return UID.MPEG4AVCH264HighProfileLevel41;
+        switch (type) {
+            case "image":
+                switch (subtype) {
+                    case "jpeg":
+                        return UID.JPEGLosslessSV1;
+                    case "jls":
+                    case "x-jls":
+                        return UID.JPEGLSLossless;
+                    case "jp2":
+                        return UID.JPEG2000Lossless;
+                    case "jpx":
+                        return UID.JPEG2000MCLossless;
+                    case "x-dicom-rle":
+                    case "dicom-rle":
+                        return UID.RLELossless;
+                }
+            case "video":
+                switch (subtype) {
+                    case "mpeg":
+                        return UID.MPEG2MPML;
+                    case "mp4":
+                    case "quicktime":
+                        return UID.MPEG4HP41;
+                }
         }
         return UID.ExplicitVRLittleEndian;
     }
@@ -407,10 +458,22 @@ public class MediaTypes {
                 : type.equals("video") ? UID.VideoPhotographicImageStorage
                 : equalsIgnoreParameters(bulkdataMediaType, APPLICATION_PDF_TYPE) ? UID.EncapsulatedPDFStorage
                 : equalsIgnoreParameters(bulkdataMediaType, MediaType.APPLICATION_XML_TYPE) ? UID.EncapsulatedCDAStorage
-                : equalsIgnoreParameters(bulkdataMediaType, MODEL_STL_TYPE) ? UID.EncapsulatedSTLStorage
+                : isSTLType(bulkdataMediaType) ? UID.EncapsulatedSTLStorage
                 : equalsIgnoreParameters(bulkdataMediaType, MODEL_OBJ_TYPE) ? UID.EncapsulatedOBJStorage
                 : equalsIgnoreParameters(bulkdataMediaType, MODEL_MTL_TYPE) ? UID.EncapsulatedMTLStorage
                 : null;
+    }
+
+    public static boolean isSTLType(MediaType mediaType) {
+        return equalsIgnoreParameters(mediaType, MODEL_STL_TYPE)
+                || equalsIgnoreParameters(mediaType, MODEL_X_STL_BINARY_TYPE)
+                || equalsIgnoreParameters(mediaType, APPLICATION_SLA_TYPE);
+    }
+
+    public static boolean isSTLType(String type) {
+        return MODEL_STL.equalsIgnoreCase(type)
+                || MODEL_X_STL_BINARY.equalsIgnoreCase(type)
+                || APPLICATION_SLA.equalsIgnoreCase(type);
     }
 
     public static boolean equalsIgnoreParameters(MediaType type1, MediaType type2) {
@@ -419,16 +482,13 @@ public class MediaTypes {
     }
 
     public static MediaType getMultiPartRelatedType(MediaType mediaType) {
-        if (mediaType.isWildcardType()) {
-            return MediaType.WILDCARD_TYPE;
-        }
-        if (!equalsIgnoreParameters(MULTIPART_RELATED_TYPE, mediaType)) {
+        if (!MediaTypes.MULTIPART_RELATED_TYPE.isCompatible(mediaType))
             return null;
-        }
+
         String type = mediaType.getParameters().get("type");
-        if (type == null) {
+        if (type == null)
             return MediaType.WILDCARD_TYPE;
-        }
+
         MediaType partType = MediaType.valueOf(type);
         if (mediaType.getParameters().size() > 1) {
             Map<String, String> params = new HashMap<>(mediaType.getParameters());
@@ -444,4 +504,7 @@ public class MediaTypes {
                 : null;
     }
 
+    public static MediaType applicationDicomWithTransferSyntax(String tsuid) {
+        return new MediaType("application", "dicom", Collections.singletonMap("transfer-syntax", tsuid));
+    }
 }

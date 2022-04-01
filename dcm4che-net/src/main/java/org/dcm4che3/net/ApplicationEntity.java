@@ -45,6 +45,7 @@ import java.security.GeneralSecurityException;
 import java.util.*;
 
 import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.Implementation;
 import org.dcm4che3.net.pdu.AAbort;
 import org.dcm4che3.net.pdu.AAssociateAC;
 import org.dcm4che3.net.pdu.AAssociateRQ;
@@ -93,6 +94,7 @@ public class ApplicationEntity implements Serializable {
     private String hl7ApplicationName;
     private final LinkedHashSet<String> acceptedCallingAETs = new LinkedHashSet<>();
     private final LinkedHashSet<String> otherAETs = new LinkedHashSet<>();
+    private final LinkedHashSet<String> noAsyncModeCalledAETs = new LinkedHashSet<>();
     private final LinkedHashMap<String, String> masqueradeCallingAETs = new LinkedHashMap<>();
     private final List<Connection> conns = new ArrayList<>(1);
     private final LinkedHashMap<String, TransferCapability> scuTCs = new LinkedHashMap<>();
@@ -281,6 +283,21 @@ public class ApplicationEntity implements Serializable {
         return otherAETs.contains(aet);
     }
 
+    public String[] getNoAsyncModeCalledAETitles() {
+        return noAsyncModeCalledAETs.toArray(new String[noAsyncModeCalledAETs.size()]);
+    }
+
+    public void setNoAsyncModeCalledAETitles(String... aets) {
+        noAsyncModeCalledAETs.clear();
+        for (String aet : aets) {
+            noAsyncModeCalledAETs.add(aet);
+        }
+    }
+
+    public boolean isNoAsyncModeCalledAETitle(String calledAET) {
+        return noAsyncModeCalledAETs.contains(calledAET);
+    }
+
     public String[] getMasqueradeCallingAETitles() {
         String[] aets = new String[masqueradeCallingAETs.size()];
         int i = 0;
@@ -427,7 +444,7 @@ public class ApplicationEntity implements Serializable {
         return roleSelectionNegotiationLenient;
     }
 
-    public void setRoleSelectionNegotiationLenient(Boolean installed) {
+    public void setRoleSelectionNegotiationLenient(Boolean roleSelectionNegotiationLenient) {
         this.roleSelectionNegotiationLenient = roleSelectionNegotiationLenient;
     }
 
@@ -530,6 +547,11 @@ public class ApplicationEntity implements Serializable {
         return (role == TransferCapability.Role.SCU ? scuTCs : scpTCs).get(sopClass);
     }
 
+    public boolean hasTransferCapabilityFor(
+            String sopClass, TransferCapability.Role role) {
+        return (role == TransferCapability.Role.SCU ? scuTCs : scpTCs).containsKey(sopClass);
+    }
+
     protected PresentationContext negotiate(AAssociateRQ rq, AAssociateAC ac,
            PresentationContext rqpc) {
        String as = rqpc.getAbstractSyntax();
@@ -616,10 +638,13 @@ public class ApplicationEntity implements Serializable {
             throws IOException, InterruptedException, IncompatibleConnectionException, GeneralSecurityException {
         checkDevice();
         checkInstalled();
+        rq.setImplVersionName(Implementation.getVersionName());
         if (rq.getCallingAET() == null)
             rq.setCallingAET(getCallingAETitle(rq.getCalledAET()));
-        rq.setMaxOpsInvoked(local.getMaxOpsInvoked());
-        rq.setMaxOpsPerformed(local.getMaxOpsPerformed());
+        if (!isNoAsyncModeCalledAETitle(rq.getCalledAET())) {
+            rq.setMaxOpsInvoked(local.getMaxOpsInvoked());
+            rq.setMaxOpsPerformed(local.getMaxOpsPerformed());
+        }
         rq.setMaxPDULength(local.getReceivePDULength());
         Socket sock = local.connect(remote);
         AssociationMonitor monitor = device.getAssociationMonitor();
@@ -735,6 +760,8 @@ public class ApplicationEntity implements Serializable {
         acceptedCallingAETs.addAll(from.acceptedCallingAETs);
         otherAETs.clear();
         otherAETs.addAll(from.otherAETs);
+        noAsyncModeCalledAETs.clear();
+        noAsyncModeCalledAETs.addAll(from.noAsyncModeCalledAETs);
         masqueradeCallingAETs.clear();
         masqueradeCallingAETs.putAll(from.masqueradeCallingAETs);
         supportedCharacterSets = from.supportedCharacterSets;

@@ -153,6 +153,21 @@ public class KeycloakClient {
         this.tlsDisableTrustManager = tlsDisableTrustManager;
     }
 
+    public KeycloakClient clone() {
+        KeycloakClient clone = new KeycloakClient();
+        clone.device = device;
+        clone.keycloakClientID = keycloakClientID;
+        clone.keycloakServerURL = keycloakServerURL;
+        clone.keycloakRealm = keycloakRealm;
+        clone.keycloakClientSecret = keycloakClientSecret;
+        clone.userID = userID;
+        clone.password = password;
+        clone.keycloakGrantType = keycloakGrantType;
+        clone.tlsAllowAnyHostname = tlsAllowAnyHostname;
+        clone.tlsDisableTrustManager = tlsDisableTrustManager;
+        return clone;
+    }
+
     public void reconfigure(KeycloakClient src) {
         keycloakServerURL = src.keycloakServerURL;
         keycloakRealm = src.keycloakRealm;
@@ -162,6 +177,20 @@ public class KeycloakClient {
         password = src.password;
         tlsAllowAnyHostname = src.tlsAllowAnyHostname;
         tlsDisableTrustManager = src.tlsDisableTrustManager;
+    }
+
+    @Override
+    public String toString() {
+        return "KeycloakClient[keycloakClientID=" + keycloakClientID
+                + ",keycloakServerURL=" + keycloakServerURL
+                + ",keycloakRealm=" + keycloakRealm
+                + ",keycloakGrantType=" + keycloakGrantType
+                + ",keycloakClientSecret=" + keycloakClientSecret
+                + ",userID=" + userID
+                + ",password=" + password
+                + ",tlsAllowAnyHostname=" + tlsAllowAnyHostname
+                + ",tlsDisableTrustManager=" + tlsDisableTrustManager
+                + ']';
     }
 
 }

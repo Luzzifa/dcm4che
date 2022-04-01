@@ -38,18 +38,6 @@
 
 package org.dcm4che3.net.hl7;
 
-import java.io.IOException;
-import java.io.Serializable;
-import java.net.Socket;
-import java.security.GeneralSecurityException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-
 import org.dcm4che3.hl7.ERRSegment;
 import org.dcm4che3.hl7.HL7Exception;
 import org.dcm4che3.hl7.HL7Segment;
@@ -58,6 +46,12 @@ import org.dcm4che3.net.CompatibleConnection;
 import org.dcm4che3.net.Connection;
 import org.dcm4che3.net.Device;
 import org.dcm4che3.net.IncompatibleConnectionException;
+
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.Socket;
+import java.security.GeneralSecurityException;
+import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -246,42 +240,89 @@ public class HL7Application implements Serializable {
 
     UnparsedHL7Message onMessage(Connection conn, Socket s, UnparsedHL7Message msg) throws HL7Exception {
         HL7Segment msh = msg.msh();
+        if (msh.getField(2, null) == null)
+            throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                            .setErrorLocation(ERRSegment.SENDING_APPLICATION)
+                            .setUserMessage("Missing Sending Application"));
+        if (msh.getField(3, null) == null)
+            throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                            .setErrorLocation(ERRSegment.SENDING_FACILITY)
+                            .setUserMessage("Missing Sending Facility"));
+        if (msh.getField(4, null) == null)
+            throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                            .setErrorLocation(ERRSegment.RECEIVING_APPLICATION)
+                            .setUserMessage("Missing Receiving Application"));
+        if (msh.getField(5, null) == null)
+            throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                            .setErrorLocation(ERRSegment.RECEIVING_FACILITY)
+                            .setUserMessage("Missing Receiving Facility"));
         if (!(isInstalled() && conns.contains(conn)))
             throw new HL7Exception(
                     new ERRSegment(msh)
-                            .setHL7ErrorCode(ERRSegment.TableValueNotFound)
-                            .setErrorLocation(ERRSegment.UnknownReceivingApplication)
-                            .setUserMessage("Receiving Application not recognized"));
+                            .setHL7ErrorCode(ERRSegment.TABLE_VALUE_NOT_FOUND)
+                            .setErrorLocation(ERRSegment.RECEIVING_APPLICATION)
+                            .setUserMessage("Receiving Application and/or Facility not recognized"));
         if (!(acceptedSendingApplications.isEmpty()
                 || acceptedSendingApplications.contains(msh.getSendingApplicationWithFacility())))
             throw new HL7Exception(
                     new ERRSegment(msh)
-                            .setHL7ErrorCode(ERRSegment.TableValueNotFound)
-                            .setErrorLocation(ERRSegment.UnknownSendingApplication)
-                            .setUserMessage("Sending Application not recognized"));
+                            .setHL7ErrorCode(ERRSegment.TABLE_VALUE_NOT_FOUND)
+                            .setErrorLocation(ERRSegment.SENDING_APPLICATION)
+                            .setUserMessage("Sending Application and/or Facility not recognized"));
         String messageType = msh.getMessageType();
-        if (!(acceptedMessageTypes.contains("*")
-                || acceptedMessageTypes.contains(messageType)))
+        if (messageType.equals(""))
             throw new HL7Exception(
                     new ERRSegment(msh)
-                            .setHL7ErrorCode(unsupportedMessageTypeOrEventCode(messageType.substring(0,3)))
-                            .setUserMessage("Message Type not supported"));
+                            .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                            .setErrorLocation(ERRSegment.MESSAGE_CODE)
+                            .setUserMessage("Missing Message Type"));
+
+        if (!(acceptedMessageTypes.contains("*")
+                || acceptedMessageTypes.contains(messageType))) {
+            if (unsupportedMessageCode(messageType.substring(0, 3)))
+                throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.UNSUPPORTED_MESSAGE_TYPE)
+                            .setErrorLocation(ERRSegment.MESSAGE_CODE)
+                            .setUserMessage("Message Type - Message Code not supported"));
+
+            throw new HL7Exception(
+                    new ERRSegment(msh)
+                            .setHL7ErrorCode(ERRSegment.UNSUPPORTED_EVENT_CODE)
+                            .setErrorLocation(ERRSegment.TRIGGER_EVENT)
+                            .setUserMessage("Message Type - Trigger Event not supported"));
+        }
 
         HL7MessageListener listener = getHL7MessageListener();
         if (listener == null)
             throw new HL7Exception(new ERRSegment(msh)
-                            .setHL7ErrorCode(ERRSegment.ApplicationInternalError)
+                            .setHL7ErrorCode(ERRSegment.APPLICATION_INTERNAL_ERROR)
                             .setUserMessage("No HL7 Message Listener configured"));
+
+        if (msh.getMessageControlID() == null)
+            throw new HL7Exception(
+                new ERRSegment(msh)
+                    .setHL7ErrorCode(ERRSegment.REQUIRED_FIELD_MISSING)
+                    .setErrorLocation(ERRSegment.MESSAGE_CONTROL_ID)
+                    .setUserMessage("Missing Message Control ID"));
 
         return listener.onMessage(this, conn, s, msg);
     }
 
-    private String unsupportedMessageTypeOrEventCode(String messageType) {
+    private boolean unsupportedMessageCode(String messageType) {
         for (String acceptedMessageType : acceptedMessageTypes) {
             if (acceptedMessageType.startsWith(messageType))
-                return ERRSegment.UnsupportedEventCode;
+                return false;
         }
-        return ERRSegment.UnsupportedMessageType;
+        return true;
     }
 
     public MLLPConnection connect(Connection remote)

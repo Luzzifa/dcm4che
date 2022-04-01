@@ -122,7 +122,7 @@ public class BasicQueryTask implements QueryTask {
         return false;
     }
 
-    protected Attributes adjust(Attributes match) {
+    protected Attributes adjust(Attributes match) throws DicomServiceException {
         if (match == null)
             return null;
 
@@ -134,6 +134,7 @@ public class BasicQueryTask implements QueryTask {
                 filtered.setString(Tag.SpecificCharacterSet, VR.CS, ss);
         }
         filtered.addSelected(match, keys);
+        filtered.supplementEmpty(keys);
         return filtered;
     }
 }

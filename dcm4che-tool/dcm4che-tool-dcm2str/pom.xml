@@ -5,7 +5,7 @@
     <parent>
         <artifactId>dcm4che-tool</artifactId>
         <groupId>org.dcm4che.tool</groupId>
-        <version>5.22.0</version>
+        <version>5.26.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -19,13 +19,13 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-log4j12</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.dcm4che.tool</groupId>
             <artifactId>dcm4che-tool-common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
         </dependency>
     </dependencies>
 

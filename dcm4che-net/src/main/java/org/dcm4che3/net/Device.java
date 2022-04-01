@@ -530,7 +530,7 @@ public class Device implements Serializable {
     }
 
     public final void setTrustStorePinProperty(String trustStorePinProperty) {
-        checkNotEmpty("keyPin", keyStoreKeyPin);
+        checkNotEmpty("trustStorePinProperty", trustStorePinProperty);
         this.trustStorePinProperty = trustStorePinProperty;
     }
 
@@ -566,7 +566,7 @@ public class Device implements Serializable {
     }
 
     public final void setKeyStoreType(String keyStoreType) {
-        checkNotEmpty("keyStoreType", keyStoreURL);
+        checkNotEmpty("keyStoreType", keyStoreType);
         this.keyStoreType = keyStoreType;
     }
 
@@ -1023,6 +1023,17 @@ public class Device implements Serializable {
             int count = 0;
             for (Association association : associations) {
                 if (callingAET.equals(association.getCallingAET()))
+                    count++;
+            }
+            return count;
+        }
+    }
+
+    public int getNumberOfAssociationsInitiatedTo(String calledAET) {
+        synchronized (associations) {
+            int count = 0;
+            for (Association association : associations) {
+                if (calledAET.equals(association.getCalledAET()))
                     count++;
             }
             return count;

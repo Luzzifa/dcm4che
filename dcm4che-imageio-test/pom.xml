@@ -46,7 +46,7 @@
   <parent>
     <artifactId>dcm4che-parent</artifactId>
     <groupId>org.dcm4che</groupId>
-    <version>5.22.0</version>
+    <version>5.26.0</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
@@ -55,6 +55,8 @@
   <properties>
     <!-- Skip test by default except for some architecture related to the native library -->
     <skipTests>true</skipTests>
+    <!-- empty default argLine for tests, will be extended by jacoco and surefire later -->
+    <argLine></argLine>
   </properties>
   <profiles>
     <profile>
@@ -68,6 +70,23 @@
         <skipTests>false</skipTests>
         <os-name>macosx</os-name>
         <cpu-name>x86-64</cpu-name>
+        <lib-file-name>libopencv_java</lib-file-name>
+        <lib-file-ext>dylib</lib-file-ext>
+      </properties>
+    </profile>
+    <profile>
+      <id>mac-m1</id>
+      <activation>
+        <os>
+          <family>mac</family>
+        </os>
+      </activation>
+      <properties>
+        <skipTests>false</skipTests>
+        <os-name>macosx</os-name>
+        <cpu-name>aarch64</cpu-name>
+        <lib-file-name>libopencv_java</lib-file-name>
+        <lib-file-ext>dylib</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -83,6 +102,8 @@
         <skipTests>false</skipTests>
         <os-name>linux</os-name>
         <cpu-name>x86-64</cpu-name>
+        <lib-file-name>libopencv_java</lib-file-name>
+        <lib-file-ext>so</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -98,6 +119,8 @@
         <skipTests>false</skipTests>
         <os-name>linux</os-name>
         <cpu-name>x86-64</cpu-name>
+        <lib-file-name>libopencv_java</lib-file-name>
+        <lib-file-ext>so</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -113,6 +136,8 @@
         <skipTests>false</skipTests>
         <os-name>linux</os-name>
         <cpu-name>x86</cpu-name>
+        <lib-file-name>libopencv_java</lib-file-name>
+        <lib-file-ext>so</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -127,6 +152,8 @@
         <skipTests>false</skipTests>
         <os-name>windows</os-name>
         <cpu-name>x86-64</cpu-name>
+        <lib-file-name>opencv_java</lib-file-name>
+        <lib-file-ext>dll</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -141,6 +168,8 @@
         <skipTests>false</skipTests>
         <os-name>windows</os-name>
         <cpu-name>x86-64</cpu-name>
+        <lib-file-name>opencv_java</lib-file-name>
+        <lib-file-ext>dll</lib-file-ext>
       </properties>
     </profile>
     <profile>
@@ -155,7 +184,29 @@
         <skipTests>false</skipTests>
         <os-name>windows</os-name>
         <cpu-name>x86</cpu-name>
+        <lib-file-name>opencv_java</lib-file-name>
+        <lib-file-ext>dll</lib-file-ext>
       </properties>
+    </profile>
+    <profile>
+      <id>test-coverage</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>jacoco-report-aggregate</id>
+                <goals>
+                  <goal>report-aggregate</goal>
+                </goals>
+                <phase>verify</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
   <build>
@@ -170,6 +221,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-install-plugin</artifactId>
+        <version>3.0.0-M1</version>
         <configuration>
           <skip>true</skip>
         </configuration>
@@ -177,6 +229,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
+        <version>3.0.0-M1</version>
         <configuration>
           <skip>true</skip>
         </configuration>
@@ -213,53 +266,13 @@
               <artifactItems>
                 <artifactItem>
                   <groupId>org.weasis.thirdparty.org.opencv</groupId>
-                  <artifactId>libopencv_java</artifactId>
+                  <artifactId>${lib-file-name}</artifactId>
                   <version>${weasis.opencv.native.version}</version>
-                  <type>so</type>
-                  <classifier>linux-x86-64</classifier>
+                  <type>${lib-file-ext}</type>
+                  <classifier>${os-name}-${cpu-name}</classifier>
                   <overWrite>false</overWrite>
-                  <outputDirectory>${project.build.directory}/lib/linux-x86-64</outputDirectory>
-                  <destFileName>libopencv_java.so</destFileName>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.weasis.thirdparty.org.opencv</groupId>
-                  <artifactId>libopencv_java</artifactId>
-                  <version>${weasis.opencv.native.version}</version>
-                  <type>so</type>
-                  <classifier>linux-x86</classifier>
-                  <overWrite>false</overWrite>
-                  <outputDirectory>${project.build.directory}/lib/linux-x86</outputDirectory>
-                  <destFileName>libopencv_java.so</destFileName>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.weasis.thirdparty.org.opencv</groupId>
-                  <artifactId>libopencv_java</artifactId>
-                  <version>${weasis.opencv.native.version}</version>
-                  <type>jnilib</type>
-                  <classifier>macosx-x86-64</classifier>
-                  <overWrite>false</overWrite>
-                  <outputDirectory>${project.build.directory}/lib/macosx-x86-64</outputDirectory>
-                  <destFileName>libopencv_java.jnilib</destFileName>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.weasis.thirdparty.org.opencv</groupId>
-                  <artifactId>opencv_java</artifactId>
-                  <version>${weasis.opencv.native.version}</version>
-                  <type>dll</type>
-                  <classifier>windows-x86</classifier>
-                  <overWrite>false</overWrite>
-                  <outputDirectory>${project.build.directory}/lib/windows-x86</outputDirectory>
-                  <destFileName>opencv_java.dll</destFileName>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.weasis.thirdparty.org.opencv</groupId>
-                  <artifactId>opencv_java</artifactId>
-                  <version>${weasis.opencv.native.version}</version>
-                  <type>dll</type>
-                  <classifier>windows-x86-64</classifier>
-                  <overWrite>false</overWrite>
-                  <outputDirectory>${project.build.directory}/lib/windows-x86-64</outputDirectory>
-                  <destFileName>opencv_java.dll</destFileName>
+                  <outputDirectory>${project.build.directory}/lib/${os-name}-${cpu-name}</outputDirectory>
+                  <destFileName>${lib-file-name}.${lib-file-ext}</destFileName>
                 </artifactItem>
               </artifactItems>
             </configuration>
@@ -269,7 +282,7 @@
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
-          <argLine>-Djava.library.path=${project.build.directory}/lib/${os-name}-${cpu-name}</argLine>
+          <argLine>@{argLine} -Djava.library.path=${project.build.directory}/lib/${os-name}-${cpu-name} -XX:+IgnoreUnrecognizedVMOptions --add-opens=java.desktop/javax.imageio.stream=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED</argLine>
           <skipTests>${skipTests}</skipTests>
         </configuration>
       </plugin>
@@ -294,15 +307,18 @@
     </dependency>
     <dependency>
       <groupId>org.dcm4che</groupId>
+      <artifactId>dcm4che-imageio</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.dcm4che</groupId>
       <artifactId>dcm4che-imageio-opencv</artifactId>
       <version>${project.version}</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.dcm4che</groupId>
       <artifactId>dcm4che-imageio-rle</artifactId>
       <version>${project.version}</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.sun.media</groupId>
@@ -313,6 +329,7 @@
     <dependency>
       <groupId>jakarta.xml.bind</groupId>
       <artifactId>jakarta.xml.bind-api</artifactId>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

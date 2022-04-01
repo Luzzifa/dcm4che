@@ -71,12 +71,12 @@ Options:
                                           password by default
     --key-store <file|url>                file path or URL of key store
                                           containing the private key,
-                                          resource:key.jks by default
+                                          resource:key.p12 by default
     --key-store-pass <password>           password for key store
                                           containing the private key,
                                           'secret' by default
     --key-store-type <storetype>          type of key store containing the
-                                          private key, JKS by default
+                                          private key, PKCS12 by default
     --kos-title <code-value>              Document Title of created KOS -
                                           must be one of the values
                                           specified by
@@ -126,7 +126,7 @@ Options:
                                           other outstanding DIMSE RSPs
                                           than C-MOVE or C-GET RSPs, no
                                           timeout by default
- -s <[seq/]attr=value>                    specify attributes added to the
+ -s <[seq.]attr=value>                    specify attributes added to the
                                           sent object(s). attr can be
                                           specified by keyword or tag
                                           value (in hex), e.g. PatientName
@@ -134,7 +134,7 @@ Options:
                                           nested Datasets can be specified
                                           by including the keyword/tag
                                           value of the sequence attribute,
-                                          e.g. 00400275/00400009 for
+                                          e.g. 00400275.00400009 for
                                           Scheduled Procedure Step ID in
                                           the Request Attributes Sequence.
     --send-timeout <ms>                   timeout in ms for sending other
@@ -199,10 +199,11 @@ Options:
                                           Multiple TLS/SSL protocols may
                                           be enabled by multiple
                                           --tls-protocol options.
-                                          Supported values by SunJSSE 1.8:
-                                          TLSv1, TLSv1.1, TLSv1.2, SSLv3,
-                                          SSLv2Hello. By default, TLSv1,
-                                          TLSv1.1 and TLSv1.2 are enabled.
+                                          Supported values by Java 11:
+                                          TLSv1, TLSv1.1, TLSv1.2,
+                                          TLSv1.3, SSLv3, SSLv2Hello. By
+                                          default, only TLSv1.2 is
+                                          enabled.
     --tls1                                enable only TLS/SSL protocol
                                           TLSv1; equivalent to
                                           --tls-protocol TLSv1
@@ -212,6 +213,9 @@ Options:
     --tls12                               enable only TLS/SSL protocol
                                           TLSv1.2; equivalent to
                                           --tls-protocol TLSv1.2
+    --tls13                               enable only TLS/SSL protocol
+                                          TLSv1.3; equivalent to
+                                          --tls-protocol TLSv1.3
     --tmp-file-dir <directory>            directory were temporary file
                                           with File Meta Information from
                                           scanned files is stored; if not
@@ -226,22 +230,26 @@ Options:
                                           default
     --trust-store <file|url>              file path of key store
                                           containing trusted certificates,
-                                          resource:cacerts.jks by default
+                                          resource:cacerts.p12 by default
     --trust-store-pass <password>         password for key store with
                                           trusted certificates, 'secret'
                                           by default
     --trust-store-type <storetype>        type of key store with trusted
-                                          certificates, JKS by default
+                                          certificates, PKCS12 by default
     --uid-suffix <suffix>                 specify suffix to be appended to
                                           the Study, Series and SOP
                                           Instance UID of the sent
                                           object(s).
     --user <name>                         negotiate user identity with
                                           specified user name
+    --user-jwt <token>                    negotiate user identity with
+                                          specified JSON Web Token
     --user-pass <password>                negotiate user identity with
                                           specified password
     --user-rsp                            negotiate user identity with
                                           positive response requested
+    --user-saml <assertion>               negotiate user identity with
+                                          specified SAML Assertion
  -V,--version                             output version information and
                                           exit
 -

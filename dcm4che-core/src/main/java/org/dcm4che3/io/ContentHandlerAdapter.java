@@ -43,16 +43,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.Objects;
 
-import org.dcm4che3.data.Attributes;
-import org.dcm4che3.data.BulkData;
-import org.dcm4che3.data.ElementDictionary;
-import org.dcm4che3.data.Fragments;
-import org.dcm4che3.data.PersonName;
-import org.dcm4che3.data.Sequence;
-import org.dcm4che3.data.VR;
+import org.dcm4che3.data.*;
 import org.dcm4che3.util.Base64;
 import org.dcm4che3.util.ByteUtils;
+import org.dcm4che3.util.StringUtils;
 import org.dcm4che3.util.TagUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,17 +62,18 @@ public class ContentHandlerAdapter extends DefaultHandler {
 
     private static final Logger LOG =  LoggerFactory.getLogger(ContentHandlerAdapter.class);
 
+    private BulkData.Creator bulkDataCreator = BulkData::new;
     private Attributes fmi;
-    private final boolean bigEndian;
+    private boolean bigEndian;
     private final boolean lenient;
-    private final LinkedList<Attributes> items = new LinkedList<Attributes>();
-    private final LinkedList<Sequence> seqs = new LinkedList<Sequence>();
+    private final LinkedList<Attributes> items = new LinkedList<>();
+    private final LinkedList<Sequence> seqs = new LinkedList<>();
 
     private final ByteArrayOutputStream bout = new ByteArrayOutputStream(64);
     private final char[] carry = new char[4];
     private int carryLen;
     private final StringBuilder sb = new StringBuilder(64);
-    private final ArrayList<String> values = new ArrayList<String>();
+    private final ArrayList<String> values = new ArrayList<>();
     private PersonName pn;
     private PersonName.Group pnGroup;
     private int tag;
@@ -92,95 +89,79 @@ public class ContentHandlerAdapter extends DefaultHandler {
     }
 
     public ContentHandlerAdapter(Attributes attrs, boolean lenient) {
-        if (attrs == null)
-            throw new NullPointerException();
-        items.add(attrs);
-        bigEndian = attrs.bigEndian();
+        if (attrs != null) {
+            items.add(attrs);
+            bigEndian = attrs.bigEndian();
+        }
         this.lenient = lenient;
+    }
+
+    public void setBulkDataCreator(BulkData.Creator bulkDataCreator ) {
+        this.bulkDataCreator = Objects.requireNonNull(bulkDataCreator);
     }
 
     public Attributes getFileMetaInformation() {
         return fmi;
     }
 
+    public Attributes getDataset() {
+        return items.getFirst();
+    }
+
     @Override
     public void startElement(String uri, String localName, String qName,
             org.xml.sax.Attributes atts) throws SAXException {
-        switch (qName.charAt(0)) {
-        case 'A':
-            if (qName.equals("Alphabetic"))
-                startPNGroup(PersonName.Group.Alphabetic);
-            break;
-        case 'B':
-            if (qName.equals("BulkData"))
-                bulkData(atts.getValue("uuid"), atts.getValue("uri"));
-            break;
-        case 'D':
-            if (qName.equals("DicomAttribute"))
+        switch (qName) {
+            case "DicomAttribute":
                 startDicomAttribute(
                         (int) Long.parseLong(atts.getValue("tag"), 16),
                         atts.getValue("privateCreator"),
                         atts.getValue("vr"));
-            else if (qName.equals("DataFragment"))
-                startDataFragment(Integer.parseInt(atts.getValue("number")));
-            break;
-        case 'F':
-            if (qName.equals("FamilyName"))
-                startText();
-            break;
-        case 'G':
-            if (qName.equals("GivenName"))
-                startText();
-            break;
-        case 'I':
-            if (qName.equals("Item"))
+                break;
+            case "Item":
                 startItem(Integer.parseInt(atts.getValue("number")));
-            else if (qName.equals("InlineBinary"))
+                break;
+            case "DataFragment":
+                startDataFragment(Integer.parseInt(atts.getValue("number")));
+                break;
+            case "InlineBinary":
                 startInlineBinary();
-            else if (qName.equals("Ideographic"))
-                startPNGroup(PersonName.Group.Ideographic);
-            break;
-        case 'L':
-            if (qName.equals("Length"))
-                startText();
-            break;
-        case 'M':
-            if (qName.equals("MiddleName"))
-                startText();
-            break;
-        case 'N':
-            if (qName.equals("NamePrefix") || qName.equals("NameSuffix"))
-                startText();
-            break;
-        case 'O':
-            if (qName.equals("Offset"))
-                startText();
-            break;
-        case 'P':
-            if (qName.equals("PersonName")) {
+                break;
+            case "PersonName":
                 startPersonName(Integer.parseInt(atts.getValue("number")));
-            } else if (qName.equals("Phonetic"))
+                break;
+            case "Alphabetic":
+                startPNGroup(PersonName.Group.Alphabetic);
+                break;
+            case "Ideographic":
+                startPNGroup(PersonName.Group.Ideographic);
+                break;
+            case "Phonetic":
                 startPNGroup(PersonName.Group.Phonetic);
-            break;
-        case 'T':
-            if (qName.equals("TransferSyntax"))
-                startText();
-            break;
-        case 'U':
-            if (qName.equals("URI"))
-                startText();
-            break;
-        case 'V':
-            if (qName.equals("Value")) {
+                break;
+            case "Value":
                 startValue(Integer.parseInt(atts.getValue("number")));
                 startText();
+                break;
+            case "FamilyName":
+            case "GivenName":
+            case "Length":
+            case "MiddleName":
+            case "NamePrefix":
+            case "NameSuffix":
+            case "Offset":
+            case "TransferSyntax":
+            case "URI":
+                startText();
+                break;
+            case "BulkData":
+                bulkData(atts.getValue("uuid"), atts.getValue("uri"));
+                break;
             }
-            break;
-        }
    }
 
     private void bulkData(String uuid, String uri) {
-        bulkData = new BulkData(uuid, uri, items.getLast().bigEndian());
+        bulkData = bulkDataCreator.create(uuid, uri, items.getLast().bigEndian());
     }
 
     private void startInlineBinary() {
@@ -217,8 +198,8 @@ public class ContentHandlerAdapter extends DefaultHandler {
     private void startItem(int number) {
         Sequence seq = seqs.getLast();
         while (seq.size() < number-1)
-            seq.add(new Attributes(0));
-        Attributes item = new Attributes();
+            seq.add(new Attributes(bigEndian,0));
+        Attributes item = new Attributes(bigEndian);
         seq.add(item);
         items.add(item);
     }
@@ -268,44 +249,37 @@ public class ContentHandlerAdapter extends DefaultHandler {
     @Override
     public void endElement(String uri, String localName, String qName)
             throws SAXException {
-        switch (qName.charAt(0)) {
-        case 'D':
-            if (qName.equals("DicomAttribute"))
+        switch (qName) {
+            case "DicomAttribute":
                 endDicomAttribute();
-            else if (qName.equals("DataFragment"))
-                endDataFragment();
-            break;
-        case 'F':
-            if (qName.equals("FamilyName"))
-                endPNComponent(PersonName.Component.FamilyName);
-            break;
-        case 'G':
-            if (qName.equals("GivenName"))
-                endPNComponent(PersonName.Component.GivenName);
-            break;
-        case 'I':
-            if (qName.equals("Item"))
+                break;
+            case "Item":
                 endItem();
-            break;
-        case 'M':
-            if (qName.equals("MiddleName"))
-                endPNComponent(PersonName.Component.MiddleName);
-            break;
-        case 'N':
-            if (qName.equals("NamePrefix"))
-                endPNComponent(PersonName.Component.NamePrefix);
-            else if (qName.equals("NameSuffix"))
-                endPNComponent(PersonName.Component.NameSuffix);
-            break;
-        case 'P':
-            if (qName.equals("PersonName"))
+                break;
+            case "DataFragment":
+                endDataFragment();
+                break;
+            case "PersonName":
                 endPersonName();
-            break;
-        case 'V':
-            if (qName.equals("Value")) {
+                break;
+            case "Value":
                 endValue();
-            }
-            break;
+                break;
+            case "FamilyName":
+                endPNComponent(PersonName.Component.FamilyName);
+                break;
+            case "GivenName":
+                endPNComponent(PersonName.Component.GivenName);
+                break;
+            case "MiddleName":
+                endPNComponent(PersonName.Component.MiddleName);
+                break;
+            case "NamePrefix":
+                endPNComponent(PersonName.Component.NamePrefix);
+                break;
+            case "NameSuffix":
+                endPNComponent(PersonName.Component.NameSuffix);
+                break;
         }
         processCharacters = false;
     }
@@ -336,17 +310,13 @@ public class ContentHandlerAdapter extends DefaultHandler {
             dataFragments = null;
             return;
         }
-        Attributes attrs = items.getLast();
-        if (TagUtils.isFileMetaInformation(tag)) {
-            if (fmi == null)
-                fmi = new Attributes();
-            attrs = fmi;
-        }
+        Attributes attrs = attrs();
         if (bulkData != null) {
             attrs.setValue(privateCreator, tag, vr, bulkData);
             bulkData = null;
         } else if (inlineBinary) {
             attrs.setBytes(privateCreator, tag, vr, getBytes());
+            inlineBinary = false;
         } else {
             String[] value = getStrings();
             try {
@@ -365,6 +335,23 @@ public class ContentHandlerAdapter extends DefaultHandler {
                 }
             }
         }
+    }
+
+    private Attributes attrs() {
+        if (TagUtils.isFileMetaInformation(tag)) {
+            if (fmi == null) {
+                fmi = new Attributes();
+            }
+            return fmi;
+        }
+        if (items.isEmpty()) {
+            items.add(new Attributes(bigEndian = bigEndian(fmi)));
+        }
+        return items.getLast();
+    }
+
+    private static boolean bigEndian(Attributes fmi) {
+        return fmi != null && UID.ExplicitVRBigEndian.equals(fmi.getString(Tag.TransferSyntaxUID));
     }
 
     private static String prefix(String privateCreator, int level) {
@@ -410,8 +397,8 @@ public class ContentHandlerAdapter extends DefaultHandler {
 
     private String[] getStrings() {
         try {
-            return values.toArray(new String[values.size()]);
-        } finally {;
+            return values.toArray(StringUtils.EMPTY_STRING);
+        } finally {
             values.clear();
         }
     }

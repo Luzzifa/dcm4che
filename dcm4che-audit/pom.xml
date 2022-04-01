@@ -42,7 +42,7 @@
   <parent>
     <artifactId>dcm4che-parent</artifactId>
     <groupId>org.dcm4che</groupId>
-    <version>5.22.0</version>
+    <version>5.26.0</version>
   </parent>
   <artifactId>dcm4che-audit</artifactId>
   <packaging>bundle</packaging>
@@ -72,7 +72,6 @@
       <plugin>
         <groupId>org.apache.cxf</groupId>
         <artifactId>cxf-xjc-plugin</artifactId>
-        <version>3.3.0</version>
         <executions>
           <execution>
             <id>xjc</id>

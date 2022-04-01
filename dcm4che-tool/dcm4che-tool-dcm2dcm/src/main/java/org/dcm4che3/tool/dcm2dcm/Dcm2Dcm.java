@@ -213,9 +213,9 @@ public class Dcm2Dcm {
                 .build());
         opts.addOption(Option.builder("Q")
                 .hasArg()
-                .argName("encoding-rate")
+                .argName("compression")
                 .type(PatternOptionBuilder.NUMBER_VALUE)
-                .desc(rb.getString("encoding-rate"))
+                .desc(rb.getString("compression"))
                 .build());
         opts.addOption(Option.builder("N")
                 .hasArg()
@@ -265,7 +265,7 @@ public class Dcm2Dcm {
                         cl.getParsedOptionValue("q"));
 
             if (cl.hasOption("Q"))
-                main.addCompressionParam("encodingRate",
+                main.addCompressionParam("compressionRatiofactor",
                         cl.getParsedOptionValue("Q"));
 
             if (cl.hasOption("N"))
@@ -301,13 +301,13 @@ public class Dcm2Dcm {
 
     private static String transferSyntaxOf(CommandLine cl, String def) {
         return cl.hasOption("ivrle") ? UID.ImplicitVRLittleEndian
-                : cl.hasOption("evrbe") ? UID.ExplicitVRBigEndianRetired
+                : cl.hasOption("evrbe") ? UID.ExplicitVRBigEndian
                 : cl.hasOption("defl") ? UID.DeflatedExplicitVRLittleEndian
-                : cl.hasOption("jpeg") ? UID.JPEGBaseline1
-                : cl.hasOption("jpll") ? UID.JPEGLossless
+                : cl.hasOption("jpeg") ? UID.JPEGBaseline8Bit
+                : cl.hasOption("jpll") ? UID.JPEGLosslessSV1
                 : cl.hasOption("jlsl") ? UID.JPEGLSLossless
-                : cl.hasOption("jlsn") ? UID.JPEGLSLossyNearLossless
-                : cl.hasOption("j2kr") ? UID.JPEG2000LosslessOnly
+                : cl.hasOption("jlsn") ? UID.JPEGLSNearLossless
+                : cl.hasOption("j2kr") ? UID.JPEG2000Lossless
                 : cl.hasOption("j2ki") ? UID.JPEG2000
                 : cl.getOptionValue("t", def);
     }
@@ -331,12 +331,7 @@ public class Dcm2Dcm {
          }
          final File finalDest = dest.isDirectory() ? new File(dest, src.getName()) : dest;
          if (executer != null) {
-             executer.execute(new Runnable() {
-                 @Override
-                 public void run() {
-                     transcode(src, finalDest);
-                 }
-             });
+             executer.execute(() -> transcode(src, finalDest));
          } else {
              transcode(src, finalDest);
          }
@@ -367,7 +362,7 @@ public class Dcm2Dcm {
         try {
             dis.setIncludeBulkData(IncludeBulkData.URI);
             fmi = dis.readFileMetaInformation();
-            dataset = dis.readDataset(-1, -1);
+            dataset = dis.readDataset();
         } finally {
             dis.close();
         }
@@ -407,12 +402,7 @@ public class Dcm2Dcm {
             transcoder.setEncodingOptions(encOpts);
             transcoder.setDestinationTransferSyntax(tsuid);
             transcoder.setCompressParams(params.toArray(new Property[params.size()]));
-            transcoder.transcode(new Transcoder.Handler(){
-                @Override
-                public OutputStream newOutputStream(Transcoder transcoder, Attributes dataset) throws IOException {
-                    return new FileOutputStream(dest);
-                }
-            });
+            transcoder.transcode((transcoder1, dataset) -> new FileOutputStream(dest));
         } catch (Exception e) {
             Files.deleteIfExists(dest.toPath());
             throw e;
@@ -423,11 +413,11 @@ public class Dcm2Dcm {
         switch (tstype) {
         case JPEG_BASELINE:
             if (bitsStored > 8)
-                return UID.JPEGExtended24;
+                return UID.JPEGExtended12Bit;
             break;
         case JPEG_EXTENDED:
             if (bitsStored <= 8)
-                return UID.JPEGBaseline1;
+                return UID.JPEGBaseline8Bit;
             break;
         default:
         }

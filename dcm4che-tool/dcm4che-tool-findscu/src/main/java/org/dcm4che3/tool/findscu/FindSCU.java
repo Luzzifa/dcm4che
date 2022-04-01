@@ -38,11 +38,30 @@
 
 package org.dcm4che3.tool.findscu;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
+import org.dcm4che3.data.*;
+import org.dcm4che3.io.DicomInputStream;
+import org.dcm4che3.io.DicomOutputStream;
+import org.dcm4che3.io.SAXReader;
+import org.dcm4che3.io.SAXWriter;
+import org.dcm4che3.net.*;
+import org.dcm4che3.net.pdu.AAssociateRQ;
+import org.dcm4che3.net.pdu.ExtendedNegotiation;
+import org.dcm4che3.net.pdu.PresentationContext;
+import org.dcm4che3.tool.common.CLIUtils;
+import org.dcm4che3.util.SafeClose;
+
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Templates;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.sax.SAXTransformerFactory;
+import javax.xml.transform.sax.TransformerHandler;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
+import java.io.*;
 import java.security.GeneralSecurityException;
 import java.text.DecimalFormat;
 import java.text.MessageFormat;
@@ -54,38 +73,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Templates;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.sax.SAXTransformerFactory;
-import javax.xml.transform.sax.TransformerHandler;
-import javax.xml.transform.stream.StreamResult;
-import javax.xml.transform.stream.StreamSource;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.Option.Builder;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.ParseException;
-import org.dcm4che3.data.*;
-import org.dcm4che3.io.DicomInputStream;
-import org.dcm4che3.io.DicomOutputStream;
-import org.dcm4che3.io.SAXReader;
-import org.dcm4che3.io.SAXWriter;
-import org.dcm4che3.net.ApplicationEntity;
-import org.dcm4che3.net.Association;
-import org.dcm4che3.net.Connection;
-import org.dcm4che3.net.Device;
-import org.dcm4che3.net.DimseRSPHandler;
-import org.dcm4che3.net.IncompatibleConnectionException;
-import org.dcm4che3.net.QueryOption;
-import org.dcm4che3.net.Status;
-import org.dcm4che3.net.pdu.AAssociateRQ;
-import org.dcm4che3.net.pdu.ExtendedNegotiation;
-import org.dcm4che3.net.pdu.PresentationContext;
-import org.dcm4che3.tool.common.CLIUtils;
-import org.dcm4che3.util.SafeClose;
-
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @author Vrinda Nayak <vrinda.nayak@j4care.com>
@@ -94,15 +81,15 @@ import org.dcm4che3.util.SafeClose;
 public class FindSCU {
 
     public static enum InformationModel {
-        PatientRoot(UID.PatientRootQueryRetrieveInformationModelFIND, "STUDY"),
-        StudyRoot(UID.StudyRootQueryRetrieveInformationModelFIND, "STUDY"),
-        PatientStudyOnly(UID.PatientStudyOnlyQueryRetrieveInformationModelFINDRetired, "STUDY"),
-        MWL(UID.ModalityWorklistInformationModelFIND, null),
-        UPSPull(UID.UnifiedProcedureStepPullSOPClass, null),
-        UPSWatch(UID.UnifiedProcedureStepWatchSOPClass, null),
-        UPSQuery(UID.UnifiedProcedureStepQuerySOPClass, null),
-        HangingProtocol(UID.HangingProtocolInformationModelFIND, null),
-        ColorPalette(UID.ColorPaletteQueryRetrieveInformationModelFIND, null);
+        PatientRoot(UID.PatientRootQueryRetrieveInformationModelFind, "STUDY"),
+        StudyRoot(UID.StudyRootQueryRetrieveInformationModelFind, "STUDY"),
+        PatientStudyOnly(UID.PatientStudyOnlyQueryRetrieveInformationModelFind, "STUDY"),
+        MWL(UID.ModalityWorklistInformationModelFind, null),
+        UPSPull(UID.UnifiedProcedureStepPull, null),
+        UPSWatch(UID.UnifiedProcedureStepWatch, null),
+        UPSQuery(UID.UnifiedProcedureStepQuery, null),
+        HangingProtocol(UID.HangingProtocolInformationModelFind, null),
+        ColorPalette(UID.ColorPaletteQueryRetrieveInformationModelFind, null);
 
         final String cuid;
         final String level;
@@ -274,13 +261,12 @@ public class FindSCU {
     private static void addKeyOptions(Options opts) {
         opts.addOption(Option.builder("m")
                 .hasArgs()
-                .argName("[seq/]attr=value")
-                .valueSeparator('=')
+                .argName("[seq.]attr=value")
                 .desc(rb.getString("match"))
                 .build());
         opts.addOption(Option.builder("r")
                 .hasArgs()
-                .argName("[seq/]attr")
+                .argName("[seq.]attr")
                 .desc(rb.getString("return"))
                 .build());
         opts.addOption(Option.builder("i")
@@ -468,7 +454,7 @@ public class FindSCU {
         try {
             attrs = fileExt.equals("xml")
                     ? SAXReader.parse(filePath)
-                    : new DicomInputStream(f).readDataset(-1, -1);
+                    : new DicomInputStream(f).readDataset();
             if (inFilter != null) {
                 attrs = new Attributes(inFilter.length + 1);
                 attrs.addSelected(attrs, inFilter);

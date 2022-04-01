@@ -50,16 +50,16 @@ set CP=%CP%;%DCM4CHE_HOME%\lib\dcm4che-imageio-${project.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\dcm4che-imageio-opencv-${project.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\dcm4che-imageio-rle-${project.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\dcm4che-tool-common-${project.version}.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\weasis-opencv-core-${weasis.version}.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\weasis-core-img-${weasis.core.img.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\jai_imageio-1.2-pre-dr-b04.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\clibwrapper_jiio-1.2-pre-dr-b04.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-api-${slf4j.version}.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\slf4j-log4j12-${slf4j.version}.jar
-set CP=%CP%;%DCM4CHE_HOME%\lib\log4j-${log4j.version}.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\logback-core-${logback.version}.jar
+set CP=%CP%;%DCM4CHE_HOME%\lib\logback-classic-${logback.version}.jar
 set CP=%CP%;%DCM4CHE_HOME%\lib\commons-cli-${commons-cli.version}.jar
 
-rem Setup native library path
-"%JAVA%" -version 2>&1 | findstr 64-Bit >nul && set "OS=win-x86_64" || set "OS=win-i686"
+rem Setup the native library path
+"%JAVA%" -version 2>&1 | findstr 64-Bit >nul && set "OS=windows-x86-64" || set "OS=windows-x86"
 set JAVA_LIBRARY_PATH=%DCM4CHE_HOME%\lib\%OS%
 
 set JAVA_OPTS=%JAVA_OPTS% -Djava.library.path="%JAVA_LIBRARY_PATH%"
@@ -69,5 +69,8 @@ if not "%IMAGE_READER_FACTORY%" == "" ^
 
 if not "%IMAGE_WRITER_FACTORY%" == "" ^
  set JAVA_OPTS=%JAVA_OPTS% -Dorg.dcm4che3.imageio.codec.ImageWriterFactory=%IMAGE_WRITER_FACTORY%
+
+rem Required from JDK 16 with legacy image API (Decompressor and Compressor)
+set JAVA_OPTS=%JAVA_OPTS% -XX:+IgnoreUnrecognizedVMOptions --add-opens=java.desktop/javax.imageio.stream=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED
 
 "%JAVA%" %JAVA_OPTS% -cp "%CP%" %MAIN_CLASS% %ARGS%

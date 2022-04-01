@@ -61,7 +61,7 @@ public class LookupTableFactory {
     private static final String[] XA_XRF_CUIDS = {
             UID.XRayAngiographicImageStorage,
             UID.XRayRadiofluoroscopicImageStorage,
-            UID.XRayAngiographicBiPlaneImageStorageRetired
+            UID.XRayAngiographicBiPlaneImageStorage
     };
     private static final String[] LOG_DISP = { "LOG", "DISP" };
 
@@ -93,6 +93,10 @@ public class LookupTableFactory {
     }
 
     public void setPresentationLUT(Attributes attrs) {
+        setPresentationLUT(attrs, false);
+    }
+
+    public void setPresentationLUT(Attributes attrs, boolean ignorePresentationLUTShape) {
         Attributes pLUT = attrs.getNestedDataset(Tag.PresentationLUTSequence);
         if (pLUT != null) {
             int[] desc = pLUT.getInts(Tag.LUTDescriptor);
@@ -103,11 +107,10 @@ public class LookupTableFactory {
                         pLUT.getSafeBytes(Tag.LUTData), pLUT.bigEndian());
             }
         } else {
-            String pShape = attrs.getString(Tag.PresentationLUTShape);
-            inverse = (pShape != null 
-                ? "INVERSE".equals(pShape)
-                : "MONOCHROME1".equals(
-                        attrs.getString(Tag.PhotometricInterpretation)));
+            String pShape;
+            inverse = (ignorePresentationLUTShape || (pShape = attrs.getString(Tag.PresentationLUTShape)) == null
+                    ? "MONOCHROME1".equals(attrs.getString(Tag.PhotometricInterpretation))
+                    : "INVERSE".equals(pShape));
         }
     }
 
@@ -289,6 +292,8 @@ public class LookupTableFactory {
             return false;
 
         int[] min_max = calcMinMax(raster);
+        if (min_max[0] == min_max[1])
+        	return false;
         windowCenter = (min_max[0] + min_max[1] + 1) / 2 * rescaleSlope + rescaleIntercept;
         windowWidth = Math.abs((min_max[1] + 1 - min_max[0]) * rescaleSlope);
         if (addAutoWindow) {

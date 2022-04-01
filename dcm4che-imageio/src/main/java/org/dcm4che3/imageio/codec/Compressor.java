@@ -62,12 +62,13 @@ import javax.imageio.stream.FileImageInputStream;
 import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.MemoryCacheImageOutputStream;
 
-import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.BulkData;
 import org.dcm4che3.data.Fragments;
+import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
 import org.dcm4che3.data.Value;
+import org.dcm4che3.image.BufferedImageUtils;
 import org.dcm4che3.image.Overlays;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLS;
 import org.dcm4che3.imageio.codec.jpeg.PatchJPEGLSImageOutputStream;
@@ -142,7 +143,6 @@ public class Compressor extends Decompressor implements Closeable {
         this.patchJPEGLS = param.patchJPEGLS;
 
         this.compressParam = compressor.getDefaultWriteParam();
-        int count = 0;
         for (Property property : cat(param.getImageWriteParams(), params)) {
             String name = property.getName();
             if (name.equals("maxPixelValueError"))
@@ -152,7 +152,7 @@ public class Compressor extends Decompressor implements Closeable {
             else if (name.equals("bitsCompressed"))
                 this.bitsCompressed = ((Number) property.getValue()).intValue();
             else {
-                if (count++ == 0)
+                if (compressParam.getCompressionMode() != ImageWriteParam.MODE_EXPLICIT)
                     compressParam.setCompressionMode(
                             ImageWriteParam.MODE_EXPLICIT);
                 property.setAt(compressParam);
@@ -303,6 +303,9 @@ public class Compressor extends Decompressor implements Closeable {
                 Compressor.this.extractEmbeddedOverlays(frameIndex, bi);
                 if (bitsStored < bitsAllocated)
                     Compressor.this.nullifyUnusedBits(bitsStored, bi);
+                if (imageDescriptor.is16BitsAllocated8BitsStored()) {
+                	bi = BufferedImageUtils.convertShortsToBytes(bi, null);
+                }
                 cache = new FlushlessMemoryCacheImageOutputStream(cacheout, imageDescriptor);
                 compressor.setOutput(patchJPEGLS != null
                         ? new PatchJPEGLSImageOutputStream(cache, patchJPEGLS)

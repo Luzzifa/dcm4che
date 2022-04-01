@@ -53,7 +53,8 @@ public class DimseRSPHandler {
     private final int msgId;
     private PresentationContext pc;
     private volatile Timeout timeout;
-    private boolean stopOnPending;
+    private volatile boolean stopOnPending;
+    private volatile boolean canceled;
 
     public DimseRSPHandler(int msgId) {
         this.msgId = msgId;
@@ -76,8 +77,13 @@ public class DimseRSPHandler {
         return stopOnPending;
     }
 
+    public boolean isCanceled() {
+        return canceled;
+    }
+
     public void cancel(Association as) throws IOException {
         as.cancel(pc, msgId);
+        canceled = true;
     }
 
     public void onDimseRSP(Association as, Attributes cmd, Attributes data) {
@@ -89,7 +95,7 @@ public class DimseRSPHandler {
         stopTimeout(as);
     }
 
-    private void stopTimeout(Association as) {
+    void stopTimeout(Association as) {
         if (timeout != null) {
             timeout.stop();
             timeout = null;

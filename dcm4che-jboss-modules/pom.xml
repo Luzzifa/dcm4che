@@ -3,7 +3,7 @@
   <parent>
     <groupId>org.dcm4che</groupId>
     <artifactId>dcm4che-parent</artifactId>
-    <version>5.22.0</version>
+    <version>5.26.0</version>
   </parent>
   <artifactId>dcm4che-jboss-modules</artifactId>
   <packaging>pom</packaging>
@@ -150,9 +150,9 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.weasis.opencv</groupId>
-      <artifactId>weasis-opencv-core</artifactId>
-      <version>${weasis.version}</version>
+      <groupId>org.weasis.core</groupId>
+      <artifactId>weasis-core-img</artifactId>
+      <version>${weasis.core.img.version}</version>
     </dependency>
     <dependency>
       <groupId>org.weasis.thirdparty.org.opencv</groupId>
@@ -172,8 +172,29 @@
       <groupId>org.weasis.thirdparty.org.opencv</groupId>
       <artifactId>libopencv_java</artifactId>
       <version>${weasis.opencv.native.version}</version>
-      <type>jnilib</type>
+      <type>so</type>
+      <classifier>linux-armv7a</classifier>
+    </dependency>
+    <dependency>
+      <groupId>org.weasis.thirdparty.org.opencv</groupId>
+      <artifactId>libopencv_java</artifactId>
+      <version>${weasis.opencv.native.version}</version>
+      <type>so</type>
+      <classifier>linux-aarch64</classifier>
+    </dependency>
+    <dependency>
+      <groupId>org.weasis.thirdparty.org.opencv</groupId>
+      <artifactId>libopencv_java</artifactId>
+      <version>${weasis.opencv.native.version}</version>
+      <type>dylib</type>
       <classifier>macosx-x86-64</classifier>
+    </dependency>
+    <dependency>
+      <groupId>org.weasis.thirdparty.org.opencv</groupId>
+      <artifactId>libopencv_java</artifactId>
+      <version>${weasis.opencv.native.version}</version>
+      <type>dylib</type>
+      <classifier>macosx-aarch64</classifier>
     </dependency>
     <dependency>
       <groupId>org.weasis.thirdparty.org.opencv</groupId>
@@ -193,6 +214,11 @@
       <groupId>org.keycloak</groupId>
       <artifactId>keycloak-admin-client</artifactId>
       <version>${keycloak.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-compress</artifactId>
+      <version>${apache-commons-compress.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -217,18 +243,6 @@
               <finalName>dcm4che-jboss-modules-${project.version}</finalName>
               <descriptors>
                 <descriptor>src/main/assembly/modules.xml</descriptor>
-              </descriptors>
-            </configuration>
-          </execution>
-          <execution>
-            <id>${project.name}-bundles-assembly</id>
-            <phase>package</phase>
-            <goals>
-              <goal>single</goal>
-            </goals>
-            <configuration>
-              <descriptors>
-                <descriptor>src/main/assembly/bundles.xml</descriptor>
               </descriptors>
             </configuration>
           </execution>

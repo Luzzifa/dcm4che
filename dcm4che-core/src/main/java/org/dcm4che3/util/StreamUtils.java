@@ -38,12 +38,7 @@
 
 package org.dcm4che3.util;
 
-import java.io.EOFException;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.URL;
 
 /**
@@ -100,12 +95,15 @@ public class StreamUtils {
         copy(in, out, new byte[COPY_BUFFER_SIZE]);
     }
 
-    public static  void copy(InputStream in, OutputStream out, int len,
-            byte buf[]) throws IOException {
+    public static  void copy(InputStream in, OutputStream out, int len, byte buf[]) throws IOException {
+        copy(in, out, (long) len, buf);
+    }
+
+    public static  void copy(InputStream in, OutputStream out, long len, byte buf[]) throws IOException {
         if (len < 0)
             throw new IndexOutOfBoundsException();
         while (len > 0) {
-            int count = in.read(buf, 0, Math.min(len, buf.length));
+            int count = in.read(buf, 0, (int) Math.min(len, buf.length));
             if (count < 0)
                 throw new EOFException();
             out.write(buf, 0, count);
@@ -113,9 +111,12 @@ public class StreamUtils {
         }
     }
 
-    public static  void copy(InputStream in, OutputStream out, int len)
-            throws IOException {
-        copy(in, out, len, new byte[Math.min(len, COPY_BUFFER_SIZE)]);
+    public static  void copy(InputStream in, OutputStream out, int len) throws IOException {
+        copy(in, out, (long) len);
+    }
+
+    public static  void copy(InputStream in, OutputStream out, long len) throws IOException {
+        copy(in, out, (long) len, new byte[(int) Math.min(len, COPY_BUFFER_SIZE)]);
     }
 
     public static void copy(InputStream in, OutputStream out, int len,
@@ -170,5 +171,37 @@ public class StreamUtils {
         if (name.indexOf(':') < 2)
             return new FileInputStream(name);
         return new URL(name).openStream();
+    }
+
+
+    public static void skipAll(InputStream in) throws IOException {
+        copy(in, nullOutputStream());
+    }
+
+    public static OutputStream nullOutputStream() {
+        return new OutputStream() {
+            private volatile boolean closed;
+
+            private void ensureOpen() throws IOException {
+                if (closed) {
+                    throw new IOException("Stream closed");
+                }
+            }
+
+            @Override
+            public void write(int b) throws IOException {
+                ensureOpen();
+            }
+
+            @Override
+            public void write(byte b[], int off, int len) throws IOException {
+                ensureOpen();
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+            }
+        };
     }
 }
